@@ -1,0 +1,47 @@
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+
+plugins {
+    kotlin("multiplatform")
+    kotlin("plugin.serialization")
+    id("org.jetbrains.compose")
+}
+
+kotlin {
+    jvm("desktop")
+
+    sourceSets {
+        val desktopMain by getting {
+            dependencies {
+                implementation(project(":shared"))
+                implementation(compose.desktop.currentOs)
+                implementation(compose.material3)
+                implementation(compose.materialIconsExtended)
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.7.3")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
+                implementation("io.ktor:ktor-client-core:2.3.7")
+                implementation("io.ktor:ktor-client-cio:2.3.7")
+                // Global hotkey support
+                implementation("com.github.kwhat:jnativehook:2.2.2")
+            }
+        }
+    }
+}
+
+compose.desktop {
+    application {
+        mainClass = "com.jeeves.desktop.MainKt"
+
+        nativeDistributions {
+            targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            packageName = "Jeeves"
+            packageVersion = "1.0.0"
+            description = "Meeting recorder, transcriber and summariser"
+            vendor = "Jeeves"
+
+            windows {
+                menuGroup = "Jeeves"
+                upgradeUuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+            }
+        }
+    }
+}
