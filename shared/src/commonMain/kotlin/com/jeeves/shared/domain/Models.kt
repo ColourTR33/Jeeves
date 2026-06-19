@@ -33,7 +33,8 @@ data class TranscriptionResult(
     val text: String,
     val segments: List<TranscriptionSegment> = emptyList(),
     val language: String = "en",
-    val durationMs: Long = 0
+    val durationMs: Long = 0,
+    val diarizationUnavailable: Boolean = false
 )
 
 /**
@@ -80,6 +81,17 @@ enum class AiEndpointType {
 }
 
 /**
+ * Diarization mode matching whisper.cpp server flags.
+ * DIARIZE: Stereo channel-based speaker identification (requires 2-channel audio and --diarize server flag)
+ * TINYDIARIZE: Model-based speaker turn detection (requires --tinydiarize server flag and tdrz model)
+ */
+@Serializable
+enum class DiarizationMode {
+    DIARIZE,
+    TINYDIARIZE
+}
+
+/**
  * Application settings.
  */
 @Serializable
@@ -98,5 +110,8 @@ data class AppSettings(
     ),
     val recordingHotkey: String = "Ctrl+Shift+R",
     val audioFormat: String = "wav",
-    val sampleRate: Int = 16000
+    val sampleRate: Int = 16000,
+    val diarizationEnabled: Boolean = false,
+    val diarizationMode: DiarizationMode = DiarizationMode.TINYDIARIZE,
+    val stereoRecording: Boolean = false
 )

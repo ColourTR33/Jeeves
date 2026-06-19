@@ -9,13 +9,12 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.sound.sampled.*
-import kotlin.math.abs
 import kotlin.math.log10
 import kotlin.math.max
 
 /**
  * Desktop audio recorder using javax.sound.sampled.
- * Records microphone input to WAV files at 16kHz mono (optimal for Whisper).
+ * Records microphone input to WAV files at 16kHz mono or stereo (optimal for Whisper).
  * Exposes real-time audio level (0.0 to 1.0) for visual feedback.
  */
 class DesktopAudioRecorder : AudioRecorder {
@@ -27,34 +26,44 @@ class DesktopAudioRecorder : AudioRecorder {
     private val _audioLevel = MutableStateFlow(0f)
     val audioLevel: StateFlow<Float> = _audioLevel.asStateFlow()
 
+    /**
+     * Exposes an error message when a stereo recording was requested but the device
+     * does not support 2-channel capture, causing a fallback to mono.
+     * Null when no fallback has occurred.
+     */
+    private val _stereoFallbackError = MutableStateFlow<String?>(null)
+    val stereoFallbackError: StateFlow<String?> = _stereoFallbackError.asStateFlow()
+
     private var targetLine: TargetDataLine? = null
     private var recordingThread: Thread? = null
     private var audioBuffer = ByteArrayOutputStream()
     private var outputPath: String = ""
     private var isPaused = false
 
-    private val audioFormat = AudioFormat(
-        16000f,  // Sample rate - 16kHz optimal for Whisper
-        16,      // Sample size in bits
-        1,       // Channels (mono)
-        true,    // Signed
-        false    // Big endian
-    )
+    /**
+     * The audio format resolved at session start. Once recording begins, this does not change
+     * until the session ends (requirement 6.6).
+     */
+    private var sessionFormat: AudioFormat? = null
 
-    override suspend fun startRecording(outputPath: String) {
+    override suspend fun startRecording(outputPath: String, stereo: Boolean) {
         this.outputPath = outputPath
         audioBuffer = ByteArrayOutputStream()
         isPaused = false
+        _stereoFallbackError.value = null
 
         withContext(Dispatchers.IO) {
-            val info = DataLine.Info(TargetDataLine::class.java, audioFormat)
+            val resolvedFormat = resolveAudioFormat(stereo)
+            sessionFormat = resolvedFormat
+
+            val info = DataLine.Info(TargetDataLine::class.java, resolvedFormat)
 
             if (!AudioSystem.isLineSupported(info)) {
                 throw IllegalStateException("Audio line not supported. Check microphone access.")
             }
 
             targetLine = (AudioSystem.getLine(info) as TargetDataLine).apply {
-                open(audioFormat)
+                open(resolvedFormat)
                 start()
             }
 
@@ -89,18 +98,20 @@ class DesktopAudioRecorder : AudioRecorder {
         _isRecording.value = false
         _audioLevel.value = 0f
 
+        val format = sessionFormat ?: throw IllegalStateException("No active recording session")
+
         withContext(Dispatchers.IO) {
             recordingThread?.join(2000)
             targetLine?.stop()
             targetLine?.close()
             targetLine = null
 
-            // Write WAV file
+            // Write WAV file using the session format
             val audioData = synchronized(audioBuffer) { audioBuffer.toByteArray() }
             val audioInputStream = AudioInputStream(
                 audioData.inputStream(),
-                audioFormat,
-                audioData.size.toLong() / audioFormat.frameSize
+                format,
+                audioData.size.toLong() / format.frameSize
             )
 
             val outputFile = File(outputPath)
@@ -108,6 +119,7 @@ class DesktopAudioRecorder : AudioRecorder {
             AudioSystem.write(audioInputStream, AudioFileFormat.Type.WAVE, outputFile)
         }
 
+        sessionFormat = null
         return outputPath
     }
 
@@ -117,6 +129,42 @@ class DesktopAudioRecorder : AudioRecorder {
 
     override suspend fun resumeRecording() {
         isPaused = false
+    }
+
+    /**
+     * Resolve the audio format for this recording session.
+     * Attempts stereo (2 channels) if requested; falls back to mono if the system
+     * does not support 2-channel capture on any available line.
+     */
+    private fun resolveAudioFormat(stereo: Boolean): AudioFormat {
+        if (!stereo) {
+            return buildAudioFormat(channels = 1)
+        }
+
+        val stereoFormat = buildAudioFormat(channels = 2)
+        val stereoInfo = DataLine.Info(TargetDataLine::class.java, stereoFormat)
+
+        return if (AudioSystem.isLineSupported(stereoInfo)) {
+            stereoFormat
+        } else {
+            _stereoFallbackError.value =
+                "Stereo recording requested but the audio device does not support 2-channel capture. Falling back to mono."
+            buildAudioFormat(channels = 1)
+        }
+    }
+
+    /**
+     * Build an AudioFormat with the given channel count.
+     * Uses 16kHz sample rate, 16-bit signed PCM, little-endian — optimal for Whisper.
+     */
+    private fun buildAudioFormat(channels: Int): AudioFormat {
+        return AudioFormat(
+            16000f,   // Sample rate - 16kHz optimal for Whisper
+            16,       // Sample size in bits
+            channels, // 1 = mono, 2 = stereo
+            true,     // Signed
+            false     // Little-endian
+        )
     }
 
     /**

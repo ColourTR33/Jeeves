@@ -22,7 +22,7 @@ class OllamaClient(
         transcription: TranscriptionResult,
         config: AiEndpointConfig
     ): SummaryResult {
-        val prompt = buildSummarizationPrompt(transcription.text)
+        val prompt = buildSummarizationPrompt(transcription)
 
         // Try Ollama native API first
         val response = try {
@@ -71,7 +71,21 @@ class OllamaClient(
         return chatResponse.choices.firstOrNull()?.message?.content ?: ""
     }
 
-    private fun buildSummarizationPrompt(transcription: String): String {
+    private fun buildSummarizationPrompt(transcription: TranscriptionResult): String {
+        val hasSpeakers = hasSpeakerLabels(transcription.segments)
+
+        val formattedText = if (hasSpeakers) {
+            formatWithSpeakers(transcription.segments)
+        } else {
+            transcription.text
+        }
+
+        val speakerInstruction = if (hasSpeakers) {
+            "\n|The transcription includes speaker labels. When summarising, attribute key points and action items to the speaker who raised them where possible.\n|"
+        } else {
+            ""
+        }
+
         return """
             |Please summarise the following meeting transcription. Provide:
             |1. A concise summary (2-3 paragraphs)
@@ -91,9 +105,9 @@ class OllamaClient(
             |- [action 1]
             |- [action 2]
             |...
-            |
+            |$speakerInstruction
             |TRANSCRIPTION:
-            |$transcription
+            |$formattedText
         """.trimMargin()
     }
 

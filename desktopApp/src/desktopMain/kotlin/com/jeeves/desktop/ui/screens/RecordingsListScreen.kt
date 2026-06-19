@@ -1,6 +1,7 @@
 package com.jeeves.desktop.ui.screens
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +20,7 @@ import com.jeeves.shared.domain.Recording
 import com.jeeves.shared.domain.RecordingState
 import com.jeeves.shared.domain.SummaryResult
 import com.jeeves.shared.domain.TranscriptionResult
+import com.jeeves.shared.ui.groupBySpeaker
 import kotlinx.coroutines.launch
 import java.time.*
 import java.time.format.DateTimeFormatter
@@ -585,25 +587,101 @@ private fun TranscriptionView(transcription: TranscriptionResult?) {
         return
     }
 
-    LazyColumn {
-        if (transcription.segments.isNotEmpty()) {
-            items(transcription.segments) { segment ->
-                Row(modifier = Modifier.padding(vertical = 4.dp)) {
-                    Text(
-                        text = formatTimestamp(segment.startMs),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.width(60.dp)
-                    )
-                    Text(
-                        text = segment.text,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+    val hasSpeakerData = transcription.segments.any { it.speaker != null }
+
+    if (hasSpeakerData) {
+        SpeakerSegmentDisplay(transcription)
+    } else {
+        // Fallback: plain text or timestamped display without speaker data
+        LazyColumn {
+            if (transcription.segments.isNotEmpty()) {
+                items(transcription.segments) { segment ->
+                    Row(modifier = Modifier.padding(vertical = 4.dp)) {
+                        Text(
+                            text = formatTimestamp(segment.startMs),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.width(60.dp)
+                        )
+                        Text(
+                            text = segment.text,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            } else {
+                item {
+                    Text(transcription.text, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-        } else {
-            item {
-                Text(transcription.text, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun SpeakerSegmentDisplay(transcription: TranscriptionResult) {
+    val speakerColorMap = remember(transcription.segments) {
+        buildSpeakerColorMap(transcription.segments)
+    }
+
+    val groups = remember(transcription.segments) {
+        groupBySpeaker(transcription.segments)
+    }
+
+    LazyColumn {
+        items(groups) { group ->
+            val speaker = group.speaker
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                // Show speaker label once per group (only if speaker is non-null)
+                if (speaker != null) {
+                    val bgColor = speakerColorMap[speaker]
+                    Text(
+                        text = speaker,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .padding(bottom = 2.dp)
+                            .then(
+                                if (bgColor != null) Modifier
+                                    .background(bgColor, RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                else Modifier
+                            )
+                    )
+                }
+
+                // Render each segment in the group with timestamp
+                for (segment in group.segments) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                            .then(
+                                if (speaker != null) {
+                                    val bgColor = speakerColorMap[speaker]
+                                    if (bgColor != null) Modifier
+                                        .background(bgColor.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    else Modifier
+                                } else Modifier
+                            )
+                    ) {
+                        Text(
+                            text = formatTimestamp(segment.startMs),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.width(60.dp)
+                        )
+                        Text(
+                            text = segment.text,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
             }
         }
     }

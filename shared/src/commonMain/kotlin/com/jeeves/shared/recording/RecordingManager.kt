@@ -3,6 +3,8 @@ package com.jeeves.shared.recording
 import com.jeeves.shared.ai.AppLogger
 import com.jeeves.shared.ai.OllamaClient
 import com.jeeves.shared.ai.WhisperClient
+import com.jeeves.shared.ai.formatWithSpeakers
+import com.jeeves.shared.ai.hasSpeakerLabels
 import com.jeeves.shared.domain.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,9 +60,10 @@ class RecordingManager(
             _error.value = null
             val settings = settingsRepository.getSettings()
             val outputPath = generateOutputPath(settings.audioFormat)
+            val useStereo = settings.diarizationEnabled && settings.stereoRecording
 
             recordingStartTime = currentTimeMillis()
-            audioRecorder.startRecording(outputPath)
+            audioRecorder.startRecording(outputPath, stereo = useStereo)
             _state.value = RecordingState.RECORDING
         } catch (e: Exception) {
             _error.value = "Failed to start recording: ${e.message}"
@@ -121,21 +124,30 @@ class RecordingManager(
             AppLogger.info("RecordingManager", "Starting transcription for recording: ${recording.id}")
             AppLogger.info("RecordingManager", "Audio file: ${recording.filePath}")
             AppLogger.info("RecordingManager", "Transcription endpoint: ${settings.transcriptionEndpoint.baseUrl}")
+            AppLogger.info("RecordingManager", "Diarization: enabled=${settings.diarizationEnabled}, mode=${settings.diarizationMode}")
             _transcriptionProgress.value = "Transcribing audio..."
 
             val transcription = whisperClient.transcribe(
                 audioFilePath = recording.filePath,
-                config = settings.transcriptionEndpoint
+                config = settings.transcriptionEndpoint,
+                diarizationEnabled = settings.diarizationEnabled,
+                diarizationMode = settings.diarizationMode
             ).copy(recordingId = recording.id)
 
             AppLogger.info("RecordingManager", "Transcription complete: ${transcription.text.take(100)}...")
             recordingsRepository.saveTranscription(transcription)
             _transcriptionProgress.value = "Transcription complete. Summarising..."
 
-            // Step 2: Summarise
+            // Step 2: Summarise — use speaker-attributed text when speakers are present
             AppLogger.info("RecordingManager", "Starting summarization with: ${settings.summarizationEndpoint.baseUrl}")
+            val transcriptionForSummary = if (hasSpeakerLabels(transcription.segments)) {
+                AppLogger.info("RecordingManager", "Using speaker-attributed text for summarization")
+                transcription.copy(text = formatWithSpeakers(transcription.segments))
+            } else {
+                transcription
+            }
             val summary = ollamaClient.summarize(
-                transcription = transcription,
+                transcription = transcriptionForSummary,
                 config = settings.summarizationEndpoint
             )
 

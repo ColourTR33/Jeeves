@@ -8,7 +8,12 @@ import kotlinx.coroutines.flow.StateFlow
 interface AudioRecorder {
     val isRecording: StateFlow<Boolean>
 
-    suspend fun startRecording(outputPath: String)
+    /**
+     * Start recording audio to the specified output path.
+     * @param outputPath path to the output WAV file
+     * @param stereo if true, attempt to record in 2-channel stereo; falls back to mono if unsupported
+     */
+    suspend fun startRecording(outputPath: String, stereo: Boolean = false)
     suspend fun stopRecording(): String
     suspend fun pauseRecording()
     suspend fun resumeRecording()
@@ -18,7 +23,12 @@ interface AudioRecorder {
  * Transcription service that converts audio to text.
  */
 interface TranscriptionService {
-    suspend fun transcribe(audioFilePath: String, config: AiEndpointConfig): TranscriptionResult
+    suspend fun transcribe(
+        audioFilePath: String,
+        config: AiEndpointConfig,
+        diarizationEnabled: Boolean = false,
+        diarizationMode: DiarizationMode = DiarizationMode.TINYDIARIZE
+    ): TranscriptionResult
 }
 
 /**
