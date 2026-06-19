@@ -5,6 +5,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import com.jeeves.desktop.audio.DesktopAudioRecorder
 import com.jeeves.desktop.audio.DesktopAudioPlayer
+import com.jeeves.desktop.audio.StreamingTranscriber
 import com.jeeves.desktop.data.FileRecordingsRepository
 import com.jeeves.desktop.data.FileSettingsRepository
 import com.jeeves.desktop.hotkey.HotkeyManager
@@ -13,10 +14,30 @@ import com.jeeves.desktop.ui.screens.LocalAppState
 import com.jeeves.shared.ai.OllamaClient
 import com.jeeves.shared.ai.WhisperClient
 import com.jeeves.shared.ai.createHttpClient
+import com.jeeves.shared.domain.AppSettings
 import com.jeeves.shared.recording.RecordingManager
+import com.jeeves.shared.recording.StreamingCallback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+
+/**
+ * Desktop implementation of StreamingCallback that bridges RecordingManager
+ * (shared module) with StreamingTranscriber (desktop-only).
+ */
+class DesktopStreamingCallback(
+    private val streamingTranscriber: StreamingTranscriber,
+    private val audioRecorder: DesktopAudioRecorder,
+    private val scope: CoroutineScope
+) : StreamingCallback {
+    override fun onRecordingStarted(settings: AppSettings) {
+        streamingTranscriber.startStreaming(audioRecorder, settings, scope)
+    }
+
+    override fun onRecordingStopping() {
+        streamingTranscriber.stopStreaming()
+    }
+}
 
 /**
  * Initializes all application dependencies and provides them via CompositionLocal.
@@ -34,13 +55,17 @@ fun JeevesApp(hotkeyManager: HotkeyManager) {
         val settingsRepository = FileSettingsRepository()
         val recordingsRepository = FileRecordingsRepository()
 
+        val streamingTranscriber = StreamingTranscriber(httpClient)
+        val streamingCallback = DesktopStreamingCallback(streamingTranscriber, audioRecorder, scope)
+
         val recordingManager = RecordingManager(
             audioRecorder = audioRecorder,
             whisperClient = whisperClient,
             ollamaClient = ollamaClient,
             settingsRepository = settingsRepository,
             recordingsRepository = recordingsRepository,
-            scope = scope
+            scope = scope,
+            streamingCallback = streamingCallback
         )
 
         AppState(
@@ -48,7 +73,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager) {
             settingsRepository = settingsRepository,
             recordingsRepository = recordingsRepository,
             audioPlayer = audioPlayer,
-            audioRecorder = audioRecorder
+            audioRecorder = audioRecorder,
+            streamingTranscriber = streamingTranscriber
         )
     }
 

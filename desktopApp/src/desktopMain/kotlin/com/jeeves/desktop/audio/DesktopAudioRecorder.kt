@@ -43,8 +43,10 @@ class DesktopAudioRecorder : AudioRecorder {
     /**
      * The audio format resolved at session start. Once recording begins, this does not change
      * until the session ends (requirement 6.6).
+     * Exposed as read-only for StreamingTranscriber to determine channel count.
      */
-    private var sessionFormat: AudioFormat? = null
+    var sessionFormat: AudioFormat? = null
+        private set
 
     override suspend fun startRecording(outputPath: String, stereo: Boolean) {
         this.outputPath = outputPath
@@ -165,6 +167,31 @@ class DesktopAudioRecorder : AudioRecorder {
             true,     // Signed
             false     // Little-endian
         )
+    }
+
+    /**
+     * Returns a snapshot of audio bytes from the given offset to the current buffer end.
+     * Thread-safe: synchronizes on audioBuffer, copies bytes under lock, then returns.
+     */
+    fun getBufferSnapshot(fromOffset: Int): ByteArray {
+        synchronized(audioBuffer) {
+            val allBytes = audioBuffer.toByteArray()
+            return if (fromOffset >= allBytes.size) {
+                ByteArray(0)
+            } else {
+                allBytes.copyOfRange(fromOffset, allBytes.size)
+            }
+        }
+    }
+
+    /**
+     * Returns the current size of the audio buffer in bytes.
+     * Thread-safe: synchronizes on audioBuffer.
+     */
+    fun getBufferSize(): Int {
+        synchronized(audioBuffer) {
+            return audioBuffer.size()
+        }
     }
 
     /**

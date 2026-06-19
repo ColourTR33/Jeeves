@@ -113,5 +113,8 @@ data class AppSettings(
     val sampleRate: Int = 16000,
     val diarizationEnabled: Boolean = false,
     val diarizationMode: DiarizationMode = DiarizationMode.TINYDIARIZE,
-    val stereoRecording: Boolean = false
+    val stereoRecording: Boolean = false,
+    val streamingEnabled: Boolean = true,
+    val chunkIntervalSeconds: Int = 5,
+    val overlapWindowSeconds: Float = 2.0f
 )

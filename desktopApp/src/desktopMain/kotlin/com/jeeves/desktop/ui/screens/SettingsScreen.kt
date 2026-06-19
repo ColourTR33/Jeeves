@@ -12,6 +12,9 @@ import com.jeeves.shared.domain.AiEndpointConfig
 import com.jeeves.shared.domain.AiEndpointType
 import com.jeeves.shared.domain.AppSettings
 import com.jeeves.shared.domain.DiarizationMode
+import com.jeeves.shared.domain.validateChunkInterval
+import com.jeeves.shared.domain.validateOverlapWindow
+import com.jeeves.shared.domain.validateOverlapLessThanInterval
 import kotlinx.coroutines.launch
 
 @Composable
@@ -22,8 +25,29 @@ fun SettingsScreen() {
     var settings by remember { mutableStateOf(AppSettings()) }
     var isSaved by remember { mutableStateOf(false) }
 
+    // Streaming settings text fields for validation
+    var chunkIntervalText by remember { mutableStateOf("") }
+    var overlapWindowText by remember { mutableStateOf("") }
+
+    // Derived validation states
+    val chunkIntervalValue = chunkIntervalText.toIntOrNull()
+    val overlapWindowValue = overlapWindowText.toFloatOrNull()
+    val isChunkIntervalValid = chunkIntervalValue != null && validateChunkInterval(chunkIntervalValue)
+    val isOverlapWindowValid = overlapWindowValue != null && validateOverlapWindow(overlapWindowValue)
+    val isOverlapLessThanInterval = if (overlapWindowValue != null && chunkIntervalValue != null) {
+        validateOverlapLessThanInterval(overlapWindowValue, chunkIntervalValue)
+    } else true
+    val hasStreamingValidationError = settings.streamingEnabled && (
+        (chunkIntervalText.isNotEmpty() && !isChunkIntervalValid) ||
+        (overlapWindowText.isNotEmpty() && !isOverlapWindowValid) ||
+        !isOverlapLessThanInterval
+    )
+
     LaunchedEffect(Unit) {
-        settings = appState.settingsRepository.getSettings()
+        val loaded = appState.settingsRepository.getSettings()
+        settings = loaded
+        chunkIntervalText = loaded.chunkIntervalSeconds.toString()
+        overlapWindowText = loaded.overlapWindowSeconds.toString()
     }
 
     Column(
@@ -194,6 +218,94 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Streaming Transcription settings
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Streaming Transcription", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Enable streaming toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Enable live transcription during recording")
+                    Switch(
+                        checked = settings.streamingEnabled,
+                        onCheckedChange = {
+                            settings = settings.copy(streamingEnabled = it)
+                            isSaved = false
+                        }
+                    )
+                }
+
+                if (settings.streamingEnabled) {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Chunk interval field
+                    OutlinedTextField(
+                        value = chunkIntervalText,
+                        onValueChange = { newValue ->
+                            chunkIntervalText = newValue
+                            newValue.toIntOrNull()?.let { intVal ->
+                                settings = settings.copy(chunkIntervalSeconds = intVal)
+                            }
+                            isSaved = false
+                        },
+                        label = { Text("Chunk Interval (seconds)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = chunkIntervalText.isNotEmpty() && !isChunkIntervalValid
+                    )
+                    if (chunkIntervalText.isNotEmpty() && !isChunkIntervalValid) {
+                        Text(
+                            text = "Must be an integer between 3 and 30",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Overlap window field
+                    OutlinedTextField(
+                        value = overlapWindowText,
+                        onValueChange = { newValue ->
+                            overlapWindowText = newValue
+                            newValue.toFloatOrNull()?.let { floatVal ->
+                                settings = settings.copy(overlapWindowSeconds = floatVal)
+                            }
+                            isSaved = false
+                        },
+                        label = { Text("Overlap Window (seconds)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = (overlapWindowText.isNotEmpty() && !isOverlapWindowValid) || !isOverlapLessThanInterval
+                    )
+                    if (overlapWindowText.isNotEmpty() && !isOverlapWindowValid) {
+                        Text(
+                            text = "Must be a number between 0.5 and 5.0",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                        )
+                    }
+                    if (isOverlapWindowValid && !isOverlapLessThanInterval) {
+                        Text(
+                            text = "Overlap window must be less than chunk interval",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // Save button
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -212,7 +324,8 @@ fun SettingsScreen() {
                         appState.settingsRepository.saveSettings(settings)
                         isSaved = true
                     }
-                }
+                },
+                enabled = !hasStreamingValidationError
             ) {
                 Text("Save Settings")
             }

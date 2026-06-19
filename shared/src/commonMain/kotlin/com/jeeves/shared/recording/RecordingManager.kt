@@ -13,6 +13,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
+ * Callback interface for streaming transcription integration.
+ * Implemented in the desktop app to bridge RecordingManager (shared) with
+ * StreamingTranscriber (desktop-only).
+ */
+interface StreamingCallback {
+    /** Called after recording has started successfully. */
+    fun onRecordingStarted(settings: AppSettings)
+
+    /** Called at the start of stopRecording, before the audio recorder is stopped. */
+    fun onRecordingStopping()
+}
+
+/**
  * Central manager for recording sessions.
  * Coordinates the recording, transcription, and summarization pipeline.
  */
@@ -22,7 +35,8 @@ class RecordingManager(
     private val ollamaClient: OllamaClient,
     private val settingsRepository: SettingsRepository,
     private val recordingsRepository: RecordingsRepository,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val streamingCallback: StreamingCallback? = null
 ) {
     private val _state = MutableStateFlow(RecordingState.IDLE)
     val state: StateFlow<RecordingState> = _state.asStateFlow()
@@ -65,6 +79,9 @@ class RecordingManager(
             recordingStartTime = currentTimeMillis()
             audioRecorder.startRecording(outputPath, stereo = useStereo)
             _state.value = RecordingState.RECORDING
+
+            // Notify streaming callback after recording starts successfully
+            streamingCallback?.onRecordingStarted(settings)
         } catch (e: Exception) {
             _error.value = "Failed to start recording: ${e.message}"
             _state.value = RecordingState.IDLE
@@ -76,6 +93,9 @@ class RecordingManager(
      */
     suspend fun stopRecording() {
         try {
+            // Notify streaming callback before stopping the recorder
+            streamingCallback?.onRecordingStopping()
+
             val filePath = audioRecorder.stopRecording()
             val duration = currentTimeMillis() - recordingStartTime
 

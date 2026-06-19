@@ -1,10 +1,16 @@
 package com.jeeves.desktop.ui.screens
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -35,12 +41,26 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
     val progress by appState.recordingManager.transcriptionProgress.collectAsState()
     val audioLevel by appState.audioRecorder.audioLevel.collectAsState()
 
+    // Streaming transcription state
+    val liveTranscript by appState.streamingTranscriber.liveTranscript.collectAsState()
+    val isTranscribing by appState.streamingTranscriber.isTranscribing.collectAsState()
+
     // Timer display
     var elapsedSeconds by remember { mutableStateOf(0L) }
+
+    // Read settings to check if streaming is enabled
+    var streamingEnabled by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        val settings = appState.settingsRepository.getSettings()
+        streamingEnabled = settings.streamingEnabled
+    }
 
     LaunchedEffect(recordingState) {
         if (recordingState == RecordingState.RECORDING) {
             elapsedSeconds = 0
+            // Refresh streaming setting at start of each recording
+            val settings = appState.settingsRepository.getSettings()
+            streamingEnabled = settings.streamingEnabled
             while (isActive && recordingState == RecordingState.RECORDING) {
                 delay(1000)
                 elapsedSeconds++
@@ -101,6 +121,18 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                     .height(40.dp)
             )
             Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        // Live transcript display (shown during RECORDING, PAUSED, and PROCESSING when streaming is enabled)
+        if (streamingEnabled && (recordingState == RecordingState.RECORDING ||
+                    recordingState == RecordingState.PAUSED ||
+                    recordingState == RecordingState.PROCESSING)) {
+            LiveTranscriptSection(
+                liveTranscript = liveTranscript,
+                isTranscribing = isTranscribing,
+                isRecording = recordingState == RecordingState.RECORDING
+            )
+            Spacer(modifier = Modifier.height(16.dp))
         }
 
         // Processing progress
@@ -198,6 +230,103 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
             }
         }
     }
+}
+
+/**
+ * Live transcript section: scrollable container with auto-scroll,
+ * in-flight indicator, and placeholder text.
+ */
+@Composable
+private fun LiveTranscriptSection(
+    liveTranscript: String,
+    isTranscribing: Boolean,
+    isRecording: Boolean
+) {
+    val scrollState = rememberScrollState()
+    // Track whether user has scrolled away from the bottom
+    val isAtBottom by remember {
+        derivedStateOf {
+            scrollState.value >= scrollState.maxValue
+        }
+    }
+
+    // Auto-scroll to bottom when new content arrives and user is at bottom
+    LaunchedEffect(liveTranscript) {
+        if (isAtBottom || scrollState.maxValue == 0) {
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth(0.8f)
+            .heightIn(min = 60.dp, max = 200.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            if (liveTranscript.isEmpty()) {
+                // Task 6.2: Placeholder when recording but no transcript yet
+                if (isRecording) {
+                    Text(
+                        text = "Listening for speech\u2026",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                // Scrollable transcript text
+                Box(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(scrollState)
+                ) {
+                    Text(
+                        text = liveTranscript,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            // Task 6.2: In-flight indicator when transcribing
+            if (isTranscribing) {
+                Spacer(modifier = Modifier.height(4.dp))
+                PulsingTranscribingIndicator()
+            }
+        }
+    }
+}
+
+/**
+ * A pulsing "Transcribing..." indicator shown while a chunk request is in flight.
+ */
+@Composable
+private fun PulsingTranscribingIndicator() {
+    val infiniteTransition = rememberInfiniteTransition(label = "transcribing")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulsing_alpha"
+    )
+
+    Text(
+        text = "Transcribing\u2026",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = alpha)
+    )
 }
 
 /**
