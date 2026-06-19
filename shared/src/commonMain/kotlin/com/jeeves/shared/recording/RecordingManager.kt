@@ -1,5 +1,6 @@
 package com.jeeves.shared.recording
 
+import com.jeeves.shared.ai.AppLogger
 import com.jeeves.shared.ai.OllamaClient
 import com.jeeves.shared.ai.WhisperClient
 import com.jeeves.shared.domain.*
@@ -117,25 +118,33 @@ class RecordingManager(
             val settings = settingsRepository.getSettings()
 
             // Step 1: Transcribe
+            AppLogger.info("RecordingManager", "Starting transcription for recording: ${recording.id}")
+            AppLogger.info("RecordingManager", "Audio file: ${recording.filePath}")
+            AppLogger.info("RecordingManager", "Transcription endpoint: ${settings.transcriptionEndpoint.baseUrl}")
             _transcriptionProgress.value = "Transcribing audio..."
+
             val transcription = whisperClient.transcribe(
                 audioFilePath = recording.filePath,
                 config = settings.transcriptionEndpoint
             ).copy(recordingId = recording.id)
 
+            AppLogger.info("RecordingManager", "Transcription complete: ${transcription.text.take(100)}...")
             recordingsRepository.saveTranscription(transcription)
             _transcriptionProgress.value = "Transcription complete. Summarising..."
 
             // Step 2: Summarise
+            AppLogger.info("RecordingManager", "Starting summarization with: ${settings.summarizationEndpoint.baseUrl}")
             val summary = ollamaClient.summarize(
                 transcription = transcription,
                 config = settings.summarizationEndpoint
             )
 
             recordingsRepository.saveSummary(summary)
+            AppLogger.info("RecordingManager", "Summarization complete")
             _transcriptionProgress.value = null
             _state.value = RecordingState.IDLE
         } catch (e: Exception) {
+            AppLogger.error("RecordingManager", "Processing failed: ${e.message}", e)
             _error.value = "Processing failed: ${e.message}"
             _transcriptionProgress.value = null
             _state.value = RecordingState.IDLE

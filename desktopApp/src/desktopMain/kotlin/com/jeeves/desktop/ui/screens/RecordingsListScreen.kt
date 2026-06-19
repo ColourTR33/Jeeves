@@ -16,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jeeves.shared.domain.Recording
+import com.jeeves.shared.domain.RecordingState
 import com.jeeves.shared.domain.SummaryResult
 import com.jeeves.shared.domain.TranscriptionResult
 import kotlinx.coroutines.launch
@@ -100,8 +101,22 @@ fun RecordingsListScreen() {
     var transcription by remember { mutableStateOf<TranscriptionResult?>(null) }
     var summary by remember { mutableStateOf<SummaryResult?>(null) }
 
+    // Refresh recordings list and selected detail when recording state returns to IDLE
+    val recordingState by appState.recordingManager.state.collectAsState()
+
     LaunchedEffect(Unit) {
         recordings = appState.recordingsRepository.getRecordings()
+    }
+
+    // Auto-refresh when processing completes
+    LaunchedEffect(recordingState) {
+        if (recordingState == RecordingState.IDLE) {
+            recordings = appState.recordingsRepository.getRecordings()
+            selectedRecording?.let { selected ->
+                transcription = appState.recordingsRepository.getTranscription(selected.id)
+                summary = appState.recordingsRepository.getSummary(selected.id)
+            }
+        }
     }
 
     val groups = remember(recordings) { groupRecordings(recordings) }
