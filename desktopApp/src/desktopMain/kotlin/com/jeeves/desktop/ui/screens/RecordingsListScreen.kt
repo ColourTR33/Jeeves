@@ -15,12 +15,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jeeves.desktop.data.SearchResult
 import com.jeeves.shared.domain.Recording
 import com.jeeves.shared.domain.RecordingState
 import com.jeeves.shared.domain.SummaryResult
 import com.jeeves.shared.domain.TranscriptionResult
 import com.jeeves.shared.ui.groupBySpeaker
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.*
 import java.time.format.DateTimeFormatter
@@ -102,6 +105,8 @@ fun RecordingsListScreen() {
     var selectedRecording by remember { mutableStateOf<Recording?>(null) }
     var transcription by remember { mutableStateOf<TranscriptionResult?>(null) }
     var summary by remember { mutableStateOf<SummaryResult?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
 
     // Refresh recordings list and selected detail when recording state returns to IDLE
     val recordingState by appState.recordingManager.state.collectAsState()
@@ -114,11 +119,22 @@ fun RecordingsListScreen() {
     LaunchedEffect(recordingState) {
         if (recordingState == RecordingState.IDLE) {
             recordings = appState.recordingsRepository.getRecordings()
+            appState.searchService.invalidateCache()
             selectedRecording?.let { selected ->
                 transcription = appState.recordingsRepository.getTranscription(selected.id)
                 summary = appState.recordingsRepository.getSummary(selected.id)
             }
         }
+    }
+
+    // Debounced search
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isBlank()) {
+            searchResults = emptyList()
+            return@LaunchedEffect
+        }
+        delay(300)
+        searchResults = appState.searchService.search(searchQuery, recordings)
     }
 
     val groups = remember(recordings) { groupRecordings(recordings) }
@@ -161,7 +177,38 @@ fun RecordingsListScreen() {
 
                 Divider(modifier = Modifier.padding(horizontal = 16.dp))
 
-                // Grouped list
+                // Search bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search recordings...") },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(
+                            Icons.Filled.Search,
+                            contentDescription = "Search",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "Clear search",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    textStyle = MaterialTheme.typography.bodySmall
+                )
+
+                // Grouped list or search results
                 if (recordings.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -186,6 +233,39 @@ fun RecordingsListScreen() {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             )
+                        }
+                    }
+                } else if (searchQuery.isNotEmpty()) {
+                    // Search results view
+                    if (searchResults.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No results found",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            items(searchResults, key = { it.recording.id }) { result ->
+                                SearchResultItem(
+                                    result = result,
+                                    isSelected = result.recording.id == selectedRecording?.id,
+                                    onClick = {
+                                        selectedRecording = result.recording
+                                        scope.launch {
+                                            transcription = appState.recordingsRepository.getTranscription(result.recording.id)
+                                            summary = appState.recordingsRepository.getSummary(result.recording.id)
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 } else {
@@ -310,6 +390,68 @@ private fun SectionHeader(label: String, sublabel: String?, count: Int) {
 }
 
 // --- Recording list item ---
+
+@Composable
+private fun SearchResultItem(
+    result: SearchResult,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val backgroundColor by animateColorAsState(
+        if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+        else MaterialTheme.colorScheme.surface
+    )
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        color = backgroundColor,
+        shape = RoundedCornerShape(10.dp),
+        tonalElevation = if (isSelected) 2.dp else 0.dp
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = result.recording.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (result.matchSource == "transcription")
+                        MaterialTheme.colorScheme.tertiaryContainer
+                    else MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Text(
+                        text = result.matchSource,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        color = if (result.matchSource == "transcription")
+                            MaterialTheme.colorScheme.onTertiaryContainer
+                        else MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = result.snippet,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+// --- Recording list item (grouped view) ---
 
 @Composable
 private fun RecordingListItem(
