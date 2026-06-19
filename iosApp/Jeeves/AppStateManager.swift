@@ -13,14 +13,13 @@ class AppStateManager: ObservableObject {
     @Published var settings: SettingsData = SettingsData()
 
     let audioPlayer = iOSAudioPlayer()
+    let audioRecorder = iOSAudioRecorder()
 
-    private var audioRecorder: iOSAudioRecorder?
     private var timer: Timer?
     private var currentRecordingPath: String?
     private var recordingStartTime: Date?
 
     init() {
-        audioRecorder = iOSAudioRecorder()
         loadRecordings()
         loadSettings()
     }

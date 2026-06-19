@@ -17,6 +17,11 @@ struct RecordingView: View {
                 if appState.recordingState == .recording || appState.recordingState == .paused {
                     Text(formatDuration(appState.elapsedSeconds))
                         .font(.system(size: 56, weight: .light, design: .monospaced))
+
+                    // Audio level meter
+                    AudioLevelMeterView(level: appState.audioRecorder.audioLevel)
+                        .frame(height: 28)
+                        .padding(.horizontal, 48)
                 }
 
                 // Progress

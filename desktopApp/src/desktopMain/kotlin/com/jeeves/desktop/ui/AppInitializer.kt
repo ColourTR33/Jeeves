@@ -47,7 +47,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager) {
             recordingManager = recordingManager,
             settingsRepository = settingsRepository,
             recordingsRepository = recordingsRepository,
-            audioPlayer = audioPlayer
+            audioPlayer = audioPlayer,
+            audioRecorder = audioRecorder
         )
     }
 
