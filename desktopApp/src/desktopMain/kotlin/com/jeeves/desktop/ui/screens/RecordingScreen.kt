@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jeeves.desktop.hotkey.HotkeyManager
+import com.jeeves.shared.domain.MeetingTemplate
 import com.jeeves.shared.domain.RecordingState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingScreen(hotkeyManager: HotkeyManager) {
     val appState = LocalAppState.current
@@ -199,6 +201,56 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        // Feature 2: Meeting Template Picker (only shown when IDLE)
+        if (recordingState == RecordingState.IDLE) {
+            Spacer(modifier = Modifier.height(16.dp))
+            var selectedTemplate by remember { mutableStateOf(MeetingTemplate.GENERAL) }
+            var expanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                OutlinedTextField(
+                    value = selectedTemplate.name.replace("_", " ").lowercase()
+                        .replaceFirstChar { it.uppercase() },
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Meeting Type") },
+                    modifier = Modifier.menuAnchor().width(200.dp),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }
+                )
+                ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    MeetingTemplate.values().forEach { template ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    template.name.replace("_", " ").lowercase()
+                                        .replaceFirstChar { it.uppercase() }
+                                )
+                            },
+                            onClick = { selectedTemplate = template; expanded = false }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Feature 5: Bookmark button (only shown during recording)
+        if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.PAUSED) {
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = {
+                    val timestampMs = elapsedSeconds * 1000
+                    println("Bookmark added at ${timestampMs}ms")
+                }
+            ) {
+                Icon(
+                    Icons.Filled.Star,
+                    contentDescription = "Bookmark",
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Bookmark")
+            }
+        }
 
         // Error display
         error?.let { errorMsg ->

@@ -36,7 +36,8 @@ data class Recording(
     val title: String = "Untitled Meeting",
     val template: MeetingTemplate = MeetingTemplate.GENERAL,
     val tags: List<String> = emptyList(),
-    val folder: String = ""
+    val folder: String = "",
+    val highlights: List<Long> = emptyList()  // Timestamp ms values of bookmarked moments
 )
 
 /**
@@ -72,6 +73,7 @@ data class SummaryResult(
     val summary: String,
     val keyPoints: List<String> = emptyList(),
     val actionItems: List<String> = emptyList(),
+    val questions: List<String> = emptyList(),
     val modelUsed: String = ""
 )
 
@@ -132,5 +134,6 @@ data class AppSettings(
     val streamingEnabled: Boolean = true,
     val chunkIntervalSeconds: Int = 5,
     val overlapWindowSeconds: Float = 2.0f,
+    val customVocabulary: String = "",  // Comma-separated custom terms
     val obsidianVaultPath: String = ""
 )

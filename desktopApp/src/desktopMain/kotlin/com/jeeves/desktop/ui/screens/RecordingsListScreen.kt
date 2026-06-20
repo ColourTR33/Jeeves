@@ -770,7 +770,7 @@ private fun RecordingDetail(
 
         when (selectedTab) {
             0 -> SummaryView(summary)
-            1 -> TranscriptionView(transcription)
+            1 -> TranscriptionView(transcription, recording)
         }
     }
 }
@@ -809,6 +809,17 @@ private fun SummaryView(summary: SummaryResult?) {
             items(summary.actionItems) { action ->
                 Text("☐ $action", modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
             }
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
+
+        if (summary.questions.isNotEmpty()) {
+            item {
+                Text("Questions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            items(summary.questions) { question ->
+                Text("❓ $question", modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
+            }
         }
 
         item {
@@ -823,7 +834,7 @@ private fun SummaryView(summary: SummaryResult?) {
 }
 
 @Composable
-private fun TranscriptionView(transcription: TranscriptionResult?) {
+private fun TranscriptionView(transcription: TranscriptionResult?, recording: Recording) {
     if (transcription == null) {
         Text("No transcription available yet.", style = MaterialTheme.typography.bodyMedium)
         return
@@ -832,9 +843,12 @@ private fun TranscriptionView(transcription: TranscriptionResult?) {
     val hasSpeakerData = transcription.segments.any { it.speaker != null }
 
     if (hasSpeakerData) {
-        SpeakerSegmentDisplay(transcription)
+        SpeakerSegmentDisplay(transcription, recording)
     } else {
         // Fallback: plain text or timestamped display without speaker data
+        val appState = LocalAppState.current
+        val scope = rememberCoroutineScope()
+
         LazyColumn {
             if (transcription.segments.isNotEmpty()) {
                 items(transcription.segments) { segment ->
@@ -843,7 +857,14 @@ private fun TranscriptionView(transcription: TranscriptionResult?) {
                             text = formatTimestamp(segment.startMs),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.width(60.dp)
+                            modifier = Modifier
+                                .width(60.dp)
+                                .clickable {
+                                    scope.launch {
+                                        appState.audioPlayer.play(recording.filePath)
+                                        appState.audioPlayer.seekTo(segment.startMs)
+                                    }
+                                }
                         )
                         Text(
                             text = segment.text,
@@ -861,8 +882,9 @@ private fun TranscriptionView(transcription: TranscriptionResult?) {
 }
 
 @Composable
-private fun SpeakerSegmentDisplay(transcription: TranscriptionResult) {
+private fun SpeakerSegmentDisplay(transcription: TranscriptionResult, recording: Recording) {
     val appState = LocalAppState.current
+    val scope = rememberCoroutineScope()
 
     val speakerColorMap = remember(transcription.segments) {
         buildSpeakerColorMap(transcription.segments)
@@ -1004,7 +1026,14 @@ private fun SpeakerSegmentDisplay(transcription: TranscriptionResult) {
                             text = formatTimestamp(segment.startMs),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.width(60.dp)
+                            modifier = Modifier
+                                .width(60.dp)
+                                .clickable {
+                                    scope.launch {
+                                        appState.audioPlayer.play(recording.filePath)
+                                        appState.audioPlayer.seekTo(segment.startMs)
+                                    }
+                                }
                         )
                         Text(
                             text = segment.text,

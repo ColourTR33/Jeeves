@@ -306,6 +306,32 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Custom Vocabulary
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Custom Vocabulary", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = settings.customVocabulary,
+                    onValueChange = {
+                        settings = settings.copy(customVocabulary = it)
+                        isSaved = false
+                    },
+                    label = { Text("Custom terms (comma-separated)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = false,
+                    maxLines = 3
+                )
+                Text(
+                    "Add industry terms to improve transcription accuracy",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // Obsidian Vault settings
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {

@@ -91,6 +91,7 @@ class OllamaClient(
             |1. A concise summary (2-3 paragraphs)
             |2. Key points discussed (bullet points)
             |3. Action items identified (bullet points)
+            |4. Questions raised during the meeting (bullet points)
             |
             |Format your response as:
             |SUMMARY:
@@ -105,6 +106,11 @@ class OllamaClient(
             |- [action 1]
             |- [action 2]
             |...
+            |
+            |QUESTIONS:
+            |- [question 1]
+            |- [question 2]
+            |...
             |$speakerInstruction
             |TRANSCRIPTION:
             |$formattedText
@@ -118,16 +124,19 @@ class OllamaClient(
     ): SummaryResult {
         val summarySection = extractSection(response, "SUMMARY:", "KEY POINTS:")
         val keyPointsSection = extractSection(response, "KEY POINTS:", "ACTION ITEMS:")
-        val actionItemsSection = extractSection(response, "ACTION ITEMS:", null)
+        val actionItemsSection = extractSection(response, "ACTION ITEMS:", "QUESTIONS:")
+        val questionsSection = extractSection(response, "QUESTIONS:", null)
 
         val keyPoints = parseBulletPoints(keyPointsSection)
         val actionItems = parseBulletPoints(actionItemsSection)
+        val questions = parseBulletPoints(questionsSection)
 
         return SummaryResult(
             recordingId = recordingId,
             summary = summarySection.ifBlank { response },
             keyPoints = keyPoints,
             actionItems = actionItems,
+            questions = questions,
             modelUsed = modelName
         )
     }
