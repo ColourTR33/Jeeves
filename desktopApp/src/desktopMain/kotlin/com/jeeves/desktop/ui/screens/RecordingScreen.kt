@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jeeves.desktop.hotkey.HotkeyManager
 import com.jeeves.shared.domain.MeetingTemplate
+import com.jeeves.shared.domain.AudioSource
 import com.jeeves.shared.domain.RecordingState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,17 +53,26 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
 
     // Read settings to check if streaming is enabled
     var streamingEnabled by remember { mutableStateOf(true) }
+    var audioSourceLabel by remember { mutableStateOf("🎤 Default Microphone") }
     LaunchedEffect(Unit) {
         val settings = appState.settingsRepository.getSettings()
         streamingEnabled = settings.streamingEnabled
+        audioSourceLabel = when (settings.audioSource) {
+            AudioSource.DEFAULT_MICROPHONE -> "🎤 Default Microphone"
+            AudioSource.SPECIFIC_DEVICE -> "🔊 ${settings.audioDeviceName.ifEmpty { "Unknown Device" }}"
+        }
     }
 
     LaunchedEffect(recordingState) {
         if (recordingState == RecordingState.RECORDING) {
             elapsedSeconds = 0
-            // Refresh streaming setting at start of each recording
+            // Refresh streaming setting and audio source at start of each recording
             val settings = appState.settingsRepository.getSettings()
             streamingEnabled = settings.streamingEnabled
+            audioSourceLabel = when (settings.audioSource) {
+                AudioSource.DEFAULT_MICROPHONE -> "🎤 Default Microphone"
+                AudioSource.SPECIFIC_DEVICE -> "🔊 ${settings.audioDeviceName.ifEmpty { "Unknown Device" }}"
+            }
             while (isActive && recordingState == RecordingState.RECORDING) {
                 delay(1000)
                 elapsedSeconds++
@@ -198,6 +208,14 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
         // Hotkey hint
         Text(
             text = "Hotkey: Ctrl+Shift+R to toggle recording",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        // Audio source indicator
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = audioSourceLabel,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

@@ -18,6 +18,9 @@ import kotlinx.coroutines.launch
  * StreamingTranscriber (desktop-only).
  */
 interface StreamingCallback {
+    /** Called before recording starts, allowing platform-specific setup (e.g., setting audio device). */
+    fun onPreRecordingSetup(settings: AppSettings)
+
     /** Called after recording has started successfully. */
     fun onRecordingStarted(settings: AppSettings)
 
@@ -75,6 +78,9 @@ class RecordingManager(
             val settings = settingsRepository.getSettings()
             val outputPath = generateOutputPath(settings.audioFormat)
             val useStereo = settings.diarizationEnabled && settings.stereoRecording
+
+            // Allow platform to configure audio device before recording starts
+            streamingCallback?.onPreRecordingSetup(settings)
 
             recordingStartTime = currentTimeMillis()
             audioRecorder.startRecording(outputPath, stereo = useStereo)

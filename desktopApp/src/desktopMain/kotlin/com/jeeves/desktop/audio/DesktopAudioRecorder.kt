@@ -15,6 +15,7 @@ import kotlin.math.max
 /**
  * Desktop audio recorder using javax.sound.sampled.
  * Records microphone input to WAV files at 16kHz mono or stereo (optimal for Whisper).
+ * Supports recording from a specific audio device (e.g., BlackHole for system audio capture).
  * Exposes real-time audio level (0.0 to 1.0) for visual feedback.
  */
 class DesktopAudioRecorder : AudioRecorder {
@@ -48,6 +49,41 @@ class DesktopAudioRecorder : AudioRecorder {
     var sessionFormat: AudioFormat? = null
         private set
 
+    /**
+     * Optional device name to record from. When set, recording will use the specified
+     * audio input device instead of the system default. Set this before calling startRecording.
+     * Used for system audio capture via virtual audio devices like BlackHole.
+     */
+    var deviceName: String = ""
+
+    /**
+     * Returns a list of available audio input devices that support 16kHz 16-bit capture.
+     * Useful for letting the user select a specific input (e.g., BlackHole for system audio).
+     */
+    fun getAvailableInputDevices(): List<AudioInputDevice> {
+        val devices = mutableListOf<AudioInputDevice>()
+        val format = buildAudioFormat(channels = 1)
+        val lineInfo = DataLine.Info(TargetDataLine::class.java, format)
+
+        for (mixerInfo in AudioSystem.getMixerInfo()) {
+            try {
+                val mixer = AudioSystem.getMixer(mixerInfo)
+                if (mixer.isLineSupported(lineInfo)) {
+                    devices.add(
+                        AudioInputDevice(
+                            name = mixerInfo.name,
+                            description = mixerInfo.description,
+                            vendor = mixerInfo.vendor
+                        )
+                    )
+                }
+            } catch (_: Exception) {
+                // Skip devices that throw when queried
+            }
+        }
+        return devices
+    }
+
     override suspend fun startRecording(outputPath: String, stereo: Boolean) {
         this.outputPath = outputPath
         audioBuffer = ByteArrayOutputStream()
@@ -60,11 +96,21 @@ class DesktopAudioRecorder : AudioRecorder {
 
             val info = DataLine.Info(TargetDataLine::class.java, resolvedFormat)
 
-            if (!AudioSystem.isLineSupported(info)) {
-                throw IllegalStateException("Audio line not supported. Check microphone access.")
+            // If a specific device is configured, find and use that mixer
+            val line: TargetDataLine = if (deviceName.isNotEmpty()) {
+                findDeviceLine(deviceName, info)
+                    ?: throw IllegalStateException(
+                        "Audio device '$deviceName' not found or does not support the required format. " +
+                            "Check that the device is connected and available."
+                    )
+            } else {
+                if (!AudioSystem.isLineSupported(info)) {
+                    throw IllegalStateException("Audio line not supported. Check microphone access.")
+                }
+                AudioSystem.getLine(info) as TargetDataLine
             }
 
-            targetLine = (AudioSystem.getLine(info) as TargetDataLine).apply {
+            targetLine = line.apply {
                 open(resolvedFormat)
                 start()
             }
@@ -218,4 +264,33 @@ class DesktopAudioRecorder : AudioRecorder {
         val normalised = ((db + 60) / 60).toFloat().coerceIn(0f, 1f)
         return normalised
     }
+
+    /**
+     * Find a TargetDataLine from a specific mixer/device by name.
+     * Returns null if no matching device is found or the device doesn't support the format.
+     */
+    private fun findDeviceLine(name: String, lineInfo: DataLine.Info): TargetDataLine? {
+        for (mixerInfo in AudioSystem.getMixerInfo()) {
+            if (mixerInfo.name == name) {
+                try {
+                    val mixer = AudioSystem.getMixer(mixerInfo)
+                    if (mixer.isLineSupported(lineInfo)) {
+                        return mixer.getLine(lineInfo) as TargetDataLine
+                    }
+                } catch (_: Exception) {
+                    // Device exists but can't provide the line
+                }
+            }
+        }
+        return null
+    }
 }
+
+/**
+ * Represents an available audio input device.
+ */
+data class AudioInputDevice(
+    val name: String,
+    val description: String,
+    val vendor: String
+)

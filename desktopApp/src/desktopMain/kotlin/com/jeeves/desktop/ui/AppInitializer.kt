@@ -21,6 +21,7 @@ import com.jeeves.shared.ai.OllamaClient
 import com.jeeves.shared.ai.WhisperClient
 import com.jeeves.shared.ai.createHttpClient
 import com.jeeves.shared.domain.AppSettings
+import com.jeeves.shared.domain.AudioSource
 import com.jeeves.shared.recording.RecordingManager
 import com.jeeves.shared.recording.StreamingCallback
 import kotlinx.coroutines.CoroutineScope
@@ -30,12 +31,21 @@ import kotlinx.coroutines.SupervisorJob
 /**
  * Desktop implementation of StreamingCallback that bridges RecordingManager
  * (shared module) with StreamingTranscriber (desktop-only).
+ * Also handles configuring the audio device before recording starts.
  */
 class DesktopStreamingCallback(
     private val streamingTranscriber: StreamingTranscriber,
     private val audioRecorder: DesktopAudioRecorder,
     private val scope: CoroutineScope
 ) : StreamingCallback {
+    override fun onPreRecordingSetup(settings: AppSettings) {
+        // Configure the audio device based on settings
+        audioRecorder.deviceName = when (settings.audioSource) {
+            AudioSource.SPECIFIC_DEVICE -> settings.audioDeviceName
+            AudioSource.DEFAULT_MICROPHONE -> ""
+        }
+    }
+
     override fun onRecordingStarted(settings: AppSettings) {
         streamingTranscriber.startStreaming(audioRecorder, settings, scope)
     }

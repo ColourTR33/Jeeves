@@ -11,12 +11,15 @@ import androidx.compose.ui.Alignment
 import com.jeeves.shared.domain.AiEndpointConfig
 import com.jeeves.shared.domain.AiEndpointType
 import com.jeeves.shared.domain.AppSettings
+import com.jeeves.shared.domain.AudioSource
 import com.jeeves.shared.domain.DiarizationMode
 import com.jeeves.shared.domain.validateChunkInterval
 import com.jeeves.shared.domain.validateOverlapWindow
 import com.jeeves.shared.domain.validateOverlapLessThanInterval
 import kotlinx.coroutines.launch
+import com.jeeves.desktop.audio.AudioInputDevice
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
     val appState = LocalAppState.current
@@ -24,6 +27,9 @@ fun SettingsScreen() {
 
     var settings by remember { mutableStateOf(AppSettings()) }
     var isSaved by remember { mutableStateOf(false) }
+
+    // Available audio input devices
+    var availableDevices by remember { mutableStateOf<List<AudioInputDevice>>(emptyList()) }
 
     // Streaming settings text fields for validation
     var chunkIntervalText by remember { mutableStateOf("") }
@@ -48,6 +54,7 @@ fun SettingsScreen() {
         settings = loaded
         chunkIntervalText = loaded.chunkIntervalSeconds.toString()
         overlapWindowText = loaded.overlapWindowSeconds.toString()
+        availableDevices = appState.audioRecorder.getAvailableInputDevices()
     }
 
     Column(
@@ -132,6 +139,103 @@ fun SettingsScreen() {
                         modifier = Modifier.width(180.dp),
                         singleLine = true
                     )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Audio Input Device selection (for system audio capture)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Audio Input Device", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Audio source toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Use specific audio device")
+                    Switch(
+                        checked = settings.audioSource == AudioSource.SPECIFIC_DEVICE,
+                        onCheckedChange = { useSpecific ->
+                            settings = settings.copy(
+                                audioSource = if (useSpecific) AudioSource.SPECIFIC_DEVICE else AudioSource.DEFAULT_MICROPHONE
+                            )
+                            isSaved = false
+                        }
+                    )
+                }
+
+                if (settings.audioSource == AudioSource.SPECIFIC_DEVICE) {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Device dropdown
+                    var deviceExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = deviceExpanded,
+                        onExpandedChange = { deviceExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = settings.audioDeviceName.ifEmpty { "Select a device..." },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Input Device") },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = deviceExpanded) }
+                        )
+                        ExposedDropdownMenu(
+                            expanded = deviceExpanded,
+                            onDismissRequest = { deviceExpanded = false }
+                        ) {
+                            if (availableDevices.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("No input devices found") },
+                                    onClick = { deviceExpanded = false },
+                                    enabled = false
+                                )
+                            } else {
+                                availableDevices.forEach { device ->
+                                    DropdownMenuItem(
+                                        text = { Text(device.name) },
+                                        onClick = {
+                                            settings = settings.copy(audioDeviceName = device.name)
+                                            isSaved = false
+                                            deviceExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Refresh button
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = {
+                        availableDevices = appState.audioRecorder.getAvailableInputDevices()
+                    }) {
+                        Text("Refresh Devices")
+                    }
+
+                    // Help text for BlackHole
+                    val hasBlackHole = availableDevices.any { it.name.contains("BlackHole", ignoreCase = true) }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (hasBlackHole) {
+                        Text(
+                            "✓ BlackHole detected — select it above to capture system audio.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Text(
+                            "To capture system audio on macOS, install BlackHole (a virtual audio driver) " +
+                                "and set up a Multi-Output Device in Audio MIDI Setup. Then select BlackHole here.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }

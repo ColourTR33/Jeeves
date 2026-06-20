@@ -109,6 +109,17 @@ enum class DiarizationMode {
 }
 
 /**
+ * Audio input source selection.
+ * DEFAULT_MICROPHONE: Uses the system default audio input device.
+ * SPECIFIC_DEVICE: Uses a named audio input device (e.g., BlackHole for system audio capture).
+ */
+@Serializable
+enum class AudioSource {
+    DEFAULT_MICROPHONE,
+    SPECIFIC_DEVICE
+}
+
+/**
  * Application settings.
  */
 @Serializable
@@ -135,5 +146,7 @@ data class AppSettings(
     val chunkIntervalSeconds: Int = 5,
     val overlapWindowSeconds: Float = 2.0f,
     val customVocabulary: String = "",  // Comma-separated custom terms
-    val obsidianVaultPath: String = ""
+    val obsidianVaultPath: String = "",
+    val audioSource: AudioSource = AudioSource.DEFAULT_MICROPHONE,
+    val audioDeviceName: String = ""  // Name of the specific audio input device (e.g., "BlackHole 2ch")
 )
