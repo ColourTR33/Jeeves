@@ -7,16 +7,14 @@ import androidx.compose.ui.Modifier
 import com.jeeves.desktop.hotkey.HotkeyManager
 import com.jeeves.desktop.ui.screens.RecordingScreen
 import com.jeeves.desktop.ui.screens.RecordingsListScreen
-import com.jeeves.desktop.ui.screens.SettingsScreen
 
 enum class Screen {
     RECORDING,
-    RECORDINGS_LIST,
-    SETTINGS
+    RECORDINGS_LIST
 }
 
 @Composable
-fun JeevesAppContent(hotkeyManager: HotkeyManager) {
+fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
     var currentScreen by remember { mutableStateOf(Screen.RECORDING) }
 
     MaterialTheme(
@@ -36,7 +34,6 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager) {
                 when (currentScreen) {
                     Screen.RECORDING -> RecordingScreen(hotkeyManager)
                     Screen.RECORDINGS_LIST -> RecordingsListScreen()
-                    Screen.SETTINGS -> SettingsScreen()
                 }
             }
         }
@@ -60,12 +57,6 @@ private fun NavBar(
             label = { Text("Recordings") },
             selected = currentScreen == Screen.RECORDINGS_LIST,
             onClick = { onNavigate(Screen.RECORDINGS_LIST) }
-        )
-        NavigationBarItem(
-            icon = { },
-            label = { Text("Settings") },
-            selected = currentScreen == Screen.SETTINGS,
-            onClick = { onNavigate(Screen.SETTINGS) }
         )
     }
 }

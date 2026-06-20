@@ -45,11 +45,15 @@ class DesktopStreamingCallback(
     }
 }
 
+/** Global AppState instance shared between main window and settings window. */
+var appStateInstance: com.jeeves.desktop.ui.screens.AppState? = null
+    private set
+
 /**
  * Initializes all application dependencies and provides them via CompositionLocal.
  */
 @Composable
-fun JeevesApp(hotkeyManager: HotkeyManager) {
+fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
     val appState = remember {
         val httpClient = createHttpClient()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -96,7 +100,10 @@ fun JeevesApp(hotkeyManager: HotkeyManager) {
         )
     }
 
+    // Store globally for settings window access
+    appStateInstance = appState
+
     CompositionLocalProvider(LocalAppState provides appState) {
-        com.jeeves.desktop.ui.JeevesAppContent(hotkeyManager)
+        com.jeeves.desktop.ui.JeevesAppContent(hotkeyManager, onOpenSettings)
     }
 }
