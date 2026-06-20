@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -102,6 +104,7 @@ private fun groupRecordings(recordings: List<Recording>): List<RecordingGroup> {
 
 // --- Main screen ---
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingsListScreen() {
     val appState = LocalAppState.current
@@ -143,7 +146,17 @@ fun RecordingsListScreen() {
         searchResults = appState.searchService.search(searchQuery, recordings)
     }
 
-    val groups = remember(recordings) { groupRecordings(recordings) }
+    // Tag filter state
+    var selectedTag by remember { mutableStateOf<String?>(null) }
+    val allTags = remember(recordings) {
+        recordings.flatMap { it.tags }.distinct().sorted()
+    }
+    val filteredRecordings = remember(recordings, selectedTag) {
+        if (selectedTag == null) recordings
+        else recordings.filter { it.tags.contains(selectedTag) }
+    }
+
+    val groups = remember(filteredRecordings) { groupRecordings(filteredRecordings) }
 
     Row(modifier = Modifier.fillMaxSize()) {
         // Recordings list panel
@@ -213,6 +226,30 @@ fun RecordingsListScreen() {
                     shape = RoundedCornerShape(10.dp),
                     textStyle = MaterialTheme.typography.bodySmall
                 )
+
+                // Tag filter chips
+                if (allTags.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        FilterChip(
+                            selected = selectedTag == null,
+                            onClick = { selectedTag = null },
+                            label = { Text("All", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        allTags.forEach { tag ->
+                            FilterChip(
+                                selected = selectedTag == tag,
+                                onClick = { selectedTag = if (selectedTag == tag) null else tag },
+                                label = { Text("#$tag", style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                }
 
                 // Grouped list or search results
                 if (recordings.isEmpty()) {
@@ -520,6 +557,22 @@ private fun RecordingListItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                if (recording.folder.isNotBlank()) {
+                    Text(
+                        text = "📁 ${recording.folder}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+                if (recording.tags.isNotEmpty()) {
+                    Text(
+                        text = recording.tags.joinToString(" ") { "#$it" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             // Delete button (subtle, shown on hover ideally but always visible for now)
@@ -601,6 +654,63 @@ private fun RecordingDetail(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        // Tags section
+        Row(
+            modifier = Modifier.padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Existing tags as chips
+            recording.tags.forEach { tag ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    modifier = Modifier.clickable {
+                        scope.launch {
+                            val updated = recording.copy(tags = recording.tags - tag)
+                            appState.recordingsRepository.updateRecording(updated)
+                        }
+                    }
+                ) {
+                    Text(
+                        text = "#$tag",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+            }
+
+            // Add tag button/field
+            var addingTag by remember { mutableStateOf(false) }
+            var newTag by remember { mutableStateOf("") }
+
+            if (addingTag) {
+                OutlinedTextField(
+                    value = newTag,
+                    onValueChange = { newTag = it },
+                    singleLine = true,
+                    modifier = Modifier.width(100.dp).height(36.dp),
+                    textStyle = MaterialTheme.typography.labelSmall,
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (newTag.isNotBlank()) {
+                            scope.launch {
+                                val updated = recording.copy(tags = recording.tags + newTag.trim())
+                                appState.recordingsRepository.updateRecording(updated)
+                            }
+                            newTag = ""
+                        }
+                        addingTag = false
+                    }),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                )
+            } else {
+                IconButton(onClick = { addingTag = true }, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Filled.Add, contentDescription = "Add tag", modifier = Modifier.size(16.dp))
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
