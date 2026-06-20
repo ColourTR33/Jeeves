@@ -693,6 +693,25 @@ private fun RecordingDetail(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Export Text")
             }
+            OutlinedButton(
+                onClick = {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        appState.remindersExportService.exportToReminders(
+                            summary?.actionItems ?: emptyList(),
+                            recording.title
+                        )
+                    }
+                },
+                enabled = summary?.actionItems?.isNotEmpty() == true
+            ) {
+                Icon(
+                    Icons.Filled.Notifications,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Add to Reminders")
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
