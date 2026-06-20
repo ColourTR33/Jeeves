@@ -40,6 +40,13 @@ compose.desktop {
 
             macOS {
                 bundleID = "com.jeeves.desktop"
+                entitlementsFile.set(project.file("src/desktopMain/resources/entitlements.plist"))
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>NSMicrophoneUsageDescription</key>
+                        <string>Jeeves needs microphone access to record meetings for transcription.</string>
+                    """.trimIndent()
+                }
             }
 
             windows {
