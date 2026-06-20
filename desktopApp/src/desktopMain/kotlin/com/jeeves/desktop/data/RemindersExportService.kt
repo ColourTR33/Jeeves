@@ -43,9 +43,9 @@ class RemindersExportService {
     }
 
     private fun createReminder(text: String, meetingTitle: String): Boolean {
-        // Escape quotes for AppleScript
-        val escapedText = text.replace("\"", "\\\"")
-        val escapedTitle = meetingTitle.replace("\"", "\\\"")
+        // Escape for AppleScript string literals (double backslashes and quotes)
+        val escapedText = text.replace("\\", "\\\\").replace("\"", "\\\"")
+        val escapedTitle = meetingTitle.replace("\\", "\\\\").replace("\"", "\\\"")
 
         val script = """
             tell application "Reminders"
@@ -60,14 +60,20 @@ class RemindersExportService {
 
     private fun runAppleScript(script: String): Boolean {
         return try {
-            val process = ProcessBuilder("osascript", "-e", script)
+            // Write script to temp file to avoid shell escaping issues
+            val tmpFile = java.io.File.createTempFile("jeeves_script", ".scpt")
+            tmpFile.writeText(script)
+            tmpFile.deleteOnExit()
+
+            val process = ProcessBuilder("/usr/bin/osascript", tmpFile.absolutePath)
                 .redirectErrorStream(true)
                 .start()
             val exitCode = process.waitFor()
             if (exitCode != 0) {
                 val error = process.inputStream.bufferedReader().readText()
-                AppLogger.error("RemindersExport", "AppleScript failed: $error")
+                AppLogger.error("RemindersExport", "AppleScript failed (exit $exitCode): $error")
             }
+            tmpFile.delete()
             exitCode == 0
         } catch (e: IOException) {
             AppLogger.error("RemindersExport", "Failed to run osascript: ${e.message}")

@@ -45,6 +45,8 @@ compose.desktop {
                     extraKeysRawXml = """
                         <key>NSMicrophoneUsageDescription</key>
                         <string>Jeeves needs microphone access to record meetings for transcription.</string>
+                        <key>NSAppleEventsUsageDescription</key>
+                        <string>Jeeves needs access to Apple Reminders to export action items.</string>
                     """.trimIndent()
                 }
             }
