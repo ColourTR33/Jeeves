@@ -32,11 +32,15 @@ compose.desktop {
         mainClass = "com.jeeves.desktop.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Jeeves"
             packageVersion = "1.0.0"
             description = "Meeting recorder, transcriber and summariser"
             vendor = "Jeeves"
+
+            macOS {
+                bundleID = "com.jeeves.desktop"
+            }
 
             windows {
                 menuGroup = "Jeeves"
