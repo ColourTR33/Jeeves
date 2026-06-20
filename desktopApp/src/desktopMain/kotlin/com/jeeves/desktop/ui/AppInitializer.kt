@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import com.jeeves.desktop.audio.DesktopAudioRecorder
 import com.jeeves.desktop.audio.DesktopAudioPlayer
 import com.jeeves.desktop.audio.StreamingTranscriber
+import com.jeeves.desktop.data.CalendarService
 import com.jeeves.desktop.data.EmailExportService
 import com.jeeves.desktop.data.ExportService
 import com.jeeves.desktop.data.FileRecordingsRepository
@@ -83,6 +84,7 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
         val speakerNameService = SpeakerNameService()
         val emailExportService = EmailExportService()
         val obsidianExportService = ObsidianExportService()
+        val calendarService = CalendarService()
 
         val recordingManager = RecordingManager(
             audioRecorder = audioRecorder,
@@ -106,7 +108,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             remindersExportService = remindersExportService,
             speakerNameService = speakerNameService,
             emailExportService = emailExportService,
-            obsidianExportService = obsidianExportService
+            obsidianExportService = obsidianExportService,
+            calendarService = calendarService
         )
     }
 

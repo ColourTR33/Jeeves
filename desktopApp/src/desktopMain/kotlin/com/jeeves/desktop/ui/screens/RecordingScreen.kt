@@ -22,8 +22,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jeeves.desktop.data.CalendarEvent
 import com.jeeves.desktop.hotkey.HotkeyManager
 import com.jeeves.shared.domain.MeetingTemplate
 import com.jeeves.shared.domain.AudioSource
@@ -33,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -245,6 +248,42 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                                 )
                             },
                             onClick = { selectedTemplate = template; expanded = false }
+                        )
+                    }
+                }
+            }
+
+            // Calendar integration - show next meeting
+            var nextMeeting by remember { mutableStateOf<CalendarEvent?>(null) }
+            LaunchedEffect(recordingState) {
+                if (recordingState == RecordingState.IDLE) {
+                    while (isActive && recordingState == RecordingState.IDLE) {
+                        nextMeeting = withContext(Dispatchers.IO) {
+                            appState.calendarService.getNextMeeting()
+                        }
+                        delay(60_000)
+                    }
+                }
+            }
+
+            if (nextMeeting != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (nextMeeting!!.isOngoing) "🔴 In meeting: " else "📅 Next: ",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = nextMeeting!!.title,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }

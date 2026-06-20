@@ -4,6 +4,7 @@ import androidx.compose.runtime.compositionLocalOf
 import com.jeeves.desktop.audio.DesktopAudioPlayer
 import com.jeeves.desktop.audio.DesktopAudioRecorder
 import com.jeeves.desktop.audio.StreamingTranscriber
+import com.jeeves.desktop.data.CalendarService
 import com.jeeves.desktop.data.EmailExportService
 import com.jeeves.desktop.data.ExportService
 import com.jeeves.desktop.data.ObsidianExportService
@@ -29,7 +30,8 @@ data class AppState(
     val remindersExportService: RemindersExportService,
     val speakerNameService: SpeakerNameService,
     val emailExportService: EmailExportService,
-    val obsidianExportService: ObsidianExportService
+    val obsidianExportService: ObsidianExportService,
+    val calendarService: CalendarService
 )
 
 val LocalAppState = compositionLocalOf<AppState> {
