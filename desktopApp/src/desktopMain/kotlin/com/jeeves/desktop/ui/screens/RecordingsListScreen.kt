@@ -712,6 +712,36 @@ private fun RecordingDetail(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Add to Reminders")
             }
+            OutlinedButton(
+                onClick = {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        appState.emailExportService.sendRecap(recording, transcription, summary)
+                    }
+                }
+            ) {
+                Icon(
+                    Icons.Filled.Email,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Email Recap")
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        appState.obsidianExportService.exportToVault(recording, transcription, summary)
+                    }
+                }
+            ) {
+                Icon(
+                    Icons.Filled.Save,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Save to Obsidian")
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))

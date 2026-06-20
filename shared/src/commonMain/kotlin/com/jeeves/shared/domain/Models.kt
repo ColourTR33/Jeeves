@@ -13,6 +13,18 @@ enum class RecordingState {
 }
 
 /**
+ * Meeting template determines the summarization style.
+ */
+@Serializable
+enum class MeetingTemplate {
+    GENERAL,    // Default — summary, key points, action items
+    STANDUP,    // Yesterday, today, blockers format
+    ONE_ON_ONE, // Discussion topics, decisions, action items, feedback
+    INTERVIEW,  // Candidate responses, impressions, recommendation
+    BRAINSTORM  // Ideas generated, themes, next steps
+}
+
+/**
  * A completed recording with metadata.
  */
 @Serializable
@@ -21,7 +33,10 @@ data class Recording(
     val filePath: String,
     val durationMs: Long,
     val createdAt: Long,
-    val title: String = "Untitled Meeting"
+    val title: String = "Untitled Meeting",
+    val template: MeetingTemplate = MeetingTemplate.GENERAL,
+    val tags: List<String> = emptyList(),
+    val folder: String = ""
 )
 
 /**
