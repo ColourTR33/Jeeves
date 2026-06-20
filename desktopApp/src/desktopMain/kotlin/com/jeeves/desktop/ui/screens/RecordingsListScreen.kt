@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -14,7 +16,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jeeves.desktop.data.SearchResult
@@ -856,12 +862,33 @@ private fun TranscriptionView(transcription: TranscriptionResult?) {
 
 @Composable
 private fun SpeakerSegmentDisplay(transcription: TranscriptionResult) {
+    val appState = LocalAppState.current
+
     val speakerColorMap = remember(transcription.segments) {
         buildSpeakerColorMap(transcription.segments)
     }
 
     val groups = remember(transcription.segments) {
         groupBySpeaker(transcription.segments)
+    }
+
+    // State for inline speaker name editing
+    var editingSpeaker by remember { mutableStateOf<String?>(null) }
+    var editingName by remember { mutableStateOf("") }
+
+    // A recomposition key that increments when a name is saved, forcing display names to refresh
+    var nameVersion by remember { mutableStateOf(0) }
+
+    val saveName: () -> Unit = {
+        editingSpeaker?.let { speaker ->
+            val trimmed = editingName.trim()
+            if (trimmed.isNotEmpty()) {
+                appState.speakerNameService.setName(speaker, trimmed)
+            }
+            nameVersion++
+        }
+        editingSpeaker = null
+        editingName = ""
     }
 
     LazyColumn {
@@ -875,19 +902,86 @@ private fun SpeakerSegmentDisplay(transcription: TranscriptionResult) {
                 // Show speaker label once per group (only if speaker is non-null)
                 if (speaker != null) {
                     val bgColor = speakerColorMap[speaker]
-                    Text(
-                        text = speaker,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .padding(bottom = 2.dp)
-                            .then(
-                                if (bgColor != null) Modifier
-                                    .background(bgColor, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                else Modifier
+
+                    // Read display name from service; nameVersion triggers recomposition on save
+                    val displayName = remember(speaker, nameVersion) {
+                        appState.speakerNameService.getName(speaker)
+                    }
+
+                    if (editingSpeaker == speaker) {
+                        // Inline edit mode
+                        val focusRequester = remember { FocusRequester() }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = editingName,
+                                onValueChange = { editingName = it },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .width(150.dp)
+                                    .focusRequester(focusRequester)
+                                    .onFocusChanged { state ->
+                                        if (!state.isFocused && editingSpeaker == speaker) {
+                                            saveName()
+                                        }
+                                    },
+                                textStyle = MaterialTheme.typography.labelMedium,
+                                placeholder = { Text(speaker) },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { saveName() })
                             )
-                    )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(
+                                onClick = { saveName() },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = "Save name",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    editingSpeaker = null
+                                    editingName = ""
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "Cancel",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        LaunchedEffect(speaker) {
+                            focusRequester.requestFocus()
+                        }
+                    } else {
+                        // Clickable speaker label
+                        Text(
+                            text = displayName,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .padding(bottom = 2.dp)
+                                .then(
+                                    if (bgColor != null) Modifier
+                                        .background(bgColor, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    else Modifier
+                                )
+                                .clickable {
+                                    editingSpeaker = speaker
+                                    editingName = displayName
+                                }
+                        )
+                    }
                 }
 
                 // Render each segment in the group with timestamp
