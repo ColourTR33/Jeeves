@@ -4,6 +4,7 @@ import androidx.compose.runtime.compositionLocalOf
 import com.jeeves.desktop.audio.DesktopAudioPlayer
 import com.jeeves.desktop.audio.DesktopAudioRecorder
 import com.jeeves.desktop.audio.StreamingTranscriber
+import com.jeeves.desktop.data.ExportService
 import com.jeeves.desktop.data.SearchService
 import com.jeeves.shared.domain.RecordingsRepository
 import com.jeeves.shared.domain.SettingsRepository
@@ -19,7 +20,8 @@ data class AppState(
     val audioPlayer: DesktopAudioPlayer,
     val audioRecorder: DesktopAudioRecorder,
     val streamingTranscriber: StreamingTranscriber,
-    val searchService: SearchService
+    val searchService: SearchService,
+    val exportService: ExportService
 )
 
 val LocalAppState = compositionLocalOf<AppState> {

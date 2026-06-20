@@ -657,6 +657,46 @@ private fun RecordingDetail(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Export buttons
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        appState.exportService.exportRecording(
+                            recording, transcription, summary, com.jeeves.desktop.data.ExportFormat.MARKDOWN
+                        )
+                    }
+                }
+            ) {
+                Icon(
+                    Icons.Filled.Share,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Export Markdown")
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        appState.exportService.exportRecording(
+                            recording, transcription, summary, com.jeeves.desktop.data.ExportFormat.TEXT
+                        )
+                    }
+                }
+            ) {
+                Icon(
+                    Icons.Filled.Share,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Export Text")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         TabRow(selectedTabIndex = selectedTab) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
                 Text("Summary", modifier = Modifier.padding(12.dp))

@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import com.jeeves.desktop.audio.DesktopAudioRecorder
 import com.jeeves.desktop.audio.DesktopAudioPlayer
 import com.jeeves.desktop.audio.StreamingTranscriber
+import com.jeeves.desktop.data.ExportService
 import com.jeeves.desktop.data.FileRecordingsRepository
 import com.jeeves.desktop.data.FileSettingsRepository
 import com.jeeves.desktop.data.SearchService
@@ -59,6 +60,7 @@ fun JeevesApp(hotkeyManager: HotkeyManager) {
         val streamingTranscriber = StreamingTranscriber(httpClient)
         val streamingCallback = DesktopStreamingCallback(streamingTranscriber, audioRecorder, scope)
         val searchService = SearchService(recordingsRepository)
+        val exportService = ExportService()
 
         val recordingManager = RecordingManager(
             audioRecorder = audioRecorder,
@@ -77,7 +79,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager) {
             audioPlayer = audioPlayer,
             audioRecorder = audioRecorder,
             streamingTranscriber = streamingTranscriber,
-            searchService = searchService
+            searchService = searchService,
+            exportService = exportService
         )
     }
 
