@@ -306,6 +306,26 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Obsidian Vault settings
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Obsidian Vault", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = settings.obsidianVaultPath,
+                    onValueChange = {
+                        settings = settings.copy(obsidianVaultPath = it)
+                        isSaved = false
+                    },
+                    label = { Text("Vault path (e.g. ~/Obsidian/Jeeves)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // Save button
         Row(
             modifier = Modifier.fillMaxWidth(),

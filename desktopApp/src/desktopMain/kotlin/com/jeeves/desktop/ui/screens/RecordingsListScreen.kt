@@ -730,6 +730,11 @@ private fun RecordingDetail(
             OutlinedButton(
                 onClick = {
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val currentSettings = appState.settingsRepository.getSettings()
+                        val vaultPath = currentSettings.obsidianVaultPath.ifBlank {
+                            System.getProperty("user.home") + "/Obsidian/Jeeves"
+                        }
+                        appState.obsidianExportService.vaultPath = vaultPath
                         appState.obsidianExportService.exportToVault(recording, transcription, summary)
                     }
                 }

@@ -131,5 +131,6 @@ data class AppSettings(
     val stereoRecording: Boolean = false,
     val streamingEnabled: Boolean = true,
     val chunkIntervalSeconds: Int = 5,
-    val overlapWindowSeconds: Float = 2.0f
+    val overlapWindowSeconds: Float = 2.0f,
+    val obsidianVaultPath: String = ""
 )
