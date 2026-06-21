@@ -230,9 +230,9 @@ struct RecordingItem: Identifiable, Codable {
 }
 
 struct SettingsData: Codable {
-    var whisperBaseUrl: String = "http://localhost:8080"
-    var whisperModel: String = "whisper-large-v3"
-    var ollamaBaseUrl: String = "http://localhost:11434"
+    var whisperBaseUrl: String = "http://192.168.1.100:8178"
+    var whisperModel: String = "whisper-small"
+    var ollamaBaseUrl: String = "http://192.168.1.100:11434"
     var ollamaModel: String = "llama3"
 }
 

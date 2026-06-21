@@ -4,6 +4,12 @@
 <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>Jeeves needs microphone access to record meetings.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Jeeves connects to your local Whisper and Ollama servers for transcription and summarization.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_http._tcp</string>
+    </array>
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>
