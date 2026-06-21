@@ -1,155 +1,231 @@
 # Jeeves - Meeting Recorder, Transcriber & Summariser
 
-A cross-platform app for recording meetings, transcribing them with a local Whisper model, and generating summaries with a local LLM. Runs on **Windows desktop** and **iOS**.
+A fully local, privacy-first meeting recording application with AI transcription and summarization. Runs on macOS (desktop), iOS, and as an Obsidian plugin.
+
+**No cloud services. No API keys. No subscriptions.** Everything runs on your hardware.
 
 ## Features
 
-- **Record meetings** from your microphone (phone or laptop)
-- **Global hotkey** (Ctrl+Shift+R) to start/stop recording on desktop
-- **iOS home screen widget** for one-tap recording
-- **Local AI transcription** via any Whisper-compatible API
-- **Local AI summarisation** via Ollama or any OpenAI-compatible LLM endpoint
-- **Configurable endpoints** — choose your models and servers
-- Key points and action items extracted automatically
+- 🎤 Record meetings with hotkey (Ctrl+Shift+R)
+- 📝 Live streaming transcription (text appears as you speak)
+- 🤖 AI summarization with key points, action items, and questions
+- 🗣️ Speaker diarization (identify who said what)
+- 🔍 Full-text search across all recordings
+- 📋 Export to Markdown, plain text, email, Apple Reminders, and Obsidian
+- 🏷️ Tags, folders, and meeting templates
+- 📅 macOS Calendar integration (shows upcoming meetings)
+- 🔊 System audio capture (record Zoom/Teams calls via BlackHole)
+- 📱 iOS app with local server connection
+- 🧩 Obsidian plugin for recording directly in your vault
 
-## Architecture
-
-```
-Jeeves/
-├── shared/              # Kotlin Multiplatform shared module
-│   ├── commonMain/      # Domain models, interfaces, AI clients, recording manager
-│   ├── desktopMain/     # JVM platform implementations
-│   └── iosMain/         # iOS/Native platform implementations
-├── desktopApp/          # Compose Desktop (Windows) application
-└── iosApp/              # SwiftUI iOS application + WidgetKit widget
-```
-
-## Prerequisites
-
-### Desktop (Windows)
-- **JDK 17+** (for building and running)
-- **Gradle 8.5+** (wrapper included)
-
-### iOS
-- **Xcode 15+**
-- **macOS** (required for iOS builds)
-- **iOS 17+** device or simulator
-
-### Local AI Services
-- **Whisper server** — any OpenAI-compatible transcription API, such as:
-  - [faster-whisper-server](https://github.com/fedirz/faster-whisper-server)
-  - [whisper.cpp server](https://github.com/ggerganov/whisper.cpp)
-  - [LocalAI](https://localai.io/)
-- **LLM server** — any Ollama or OpenAI-compatible chat API:
-  - [Ollama](https://ollama.ai/) (recommended, easiest setup)
-  - [LM Studio](https://lmstudio.ai/)
-  - [LocalAI](https://localai.io/)
+---
 
 ## Quick Start
 
-### 1. Start your local AI services
+### Prerequisites
 
-**Ollama (summarisation):**
-```bash
-ollama pull llama3
-ollama serve
-```
+- **macOS** (Apple Silicon or Intel)
+- **Java 17+** (`java -version`)
+- **Ollama** running at http://localhost:11434 with a model loaded (`ollama run llama3`)
 
-**Whisper (transcription) — using faster-whisper-server:**
+### 1. Install whisper.cpp server
+
 ```bash
-pip install faster-whisper-server
-faster-whisper-server --model large-v3 --host 0.0.0.0 --port 8080
+brew install whisper-cpp
+
+# Download a model
+mkdir -p ~/.local/share/whisper-models
+curl -L -o ~/.local/share/whisper-models/ggml-small.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+
+# Start the server
+whisper-server \
+  --model ~/.local/share/whisper-models/ggml-small.bin \
+  --host 127.0.0.1 --port 8178 \
+  --request-path /v1/audio
 ```
 
 ### 2. Run the desktop app
 
 ```bash
+cd Jeeves
 ./gradlew :desktopApp:run
 ```
 
-Or build a distributable:
+Or build a macOS .dmg:
 ```bash
-./gradlew :desktopApp:packageMsi
+./gradlew :desktopApp:packageDmg
+# Output: desktopApp/build/compose/binaries/main/dmg/Jeeves-1.0.0.dmg
 ```
 
-The MSI installer will be in `desktopApp/build/compose/binaries/main/msi/`.
+### 3. Configure settings
 
-### 3. Build the iOS app
+Open Settings (⌘,) and set:
+- **Transcription Base URL**: `http://127.0.0.1:8178`
+- **Transcription Model**: `whisper-small`
+- **Summarization Base URL**: `http://127.0.0.1:11434`
+- **Summarization Model**: `llama3`
 
-See [iosApp/Jeeves.xcodeproj/project-setup.md](iosApp/Jeeves.xcodeproj/project-setup.md) for Xcode project creation steps.
+---
 
-Once the Xcode project is set up:
-1. Open the project in Xcode
-2. Select your team for signing
-3. Build and run on your device
+## Auto-Start whisper-server on Login
 
-## Configuration
+Create a launchd service:
 
-### Desktop
-Settings are stored in `~/Jeeves/settings.json`. You can also configure via the Settings screen in the app:
+```bash
+cat > ~/Library/LaunchAgents/com.jeeves.whisper-server.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jeeves.whisper-server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/whisper-server</string>
+        <string>--model</string>
+        <string>/Users/YOUR_USERNAME/.local/share/whisper-models/ggml-small.bin</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8178</string>
+        <string>--request-path</string>
+        <string>/v1/audio</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+EOF
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Whisper URL | `http://localhost:8080` | Base URL for Whisper-compatible API |
-| Whisper Model | `whisper-large-v3` | Model name to pass to the API |
-| Ollama URL | `http://localhost:11434` | Base URL for LLM API |
-| Ollama Model | `llama3` | Model name for summarisation |
-| Hotkey | `Ctrl+Shift+R` | Global toggle for recording |
-| Audio Format | `wav` | Recording format |
-| Sample Rate | `16000` | Sample rate in Hz (16kHz optimal for Whisper) |
+launchctl load ~/Library/LaunchAgents/com.jeeves.whisper-server.plist
+```
 
-### iOS
-Configure the same endpoints in the Settings tab. The iOS app connects to your AI servers over your local network — ensure your phone can reach the server IP.
+---
 
-## Data Storage
+## WhisperX (Better Transcription)
 
-- **Desktop:** `~/Jeeves/` — settings, recordings, transcriptions, summaries
-- **iOS:** App Documents directory + UserDefaults
+For improved accuracy, use WhisperX instead of whisper.cpp:
 
-## Hotkeys
+```bash
+conda create -n whisperx python=3.11 -y
+conda activate whisperx
+pip install whisperx flask
 
-| Platform | Action | Shortcut |
-|----------|--------|----------|
-| Windows | Toggle recording | `Ctrl+Shift+R` |
-| iOS | Toggle recording | Home screen widget tap |
+cd whisperx-server
+python server.py  # Runs on port 8179
+```
 
-## Project Structure - Key Files
+Then set Base URL to `http://127.0.0.1:8179` in settings.
 
-### Shared Module (Kotlin)
-- `domain/Models.kt` — Data classes (Recording, TranscriptionResult, SummaryResult, etc.)
-- `domain/Interfaces.kt` — Platform contracts (AudioRecorder, TranscriptionService, etc.)
-- `ai/WhisperClient.kt` — Whisper API client (multipart upload)
-- `ai/OllamaClient.kt` — LLM client (Ollama native + OpenAI-compatible fallback)
-- `recording/RecordingManager.kt` — Orchestrates record → transcribe → summarise pipeline
+---
 
-### Desktop App (Kotlin/Compose)
-- `Main.kt` — Application entry point
-- `audio/DesktopAudioRecorder.kt` — Microphone capture via javax.sound.sampled
-- `hotkey/HotkeyManager.kt` — Global hotkey via JNativeHook
-- `ui/screens/` — Recording, RecordingsList, Settings screens
+## Obsidian Plugin
 
-### iOS App (Swift/SwiftUI)
-- `JeevesApp.swift` — App entry point
-- `AppStateManager.swift` — Central state management
-- `Audio/iOSAudioRecorder.swift` — AVAudioRecorder wrapper
-- `Network/` — WhisperAPIClient, OllamaAPIClient
-- `Views/` — Recording, RecordingsList, Settings views
-- `JeevesWidget/` — WidgetKit home screen widget
+Record meetings directly in Obsidian with automatic note creation.
+
+### Install
+
+```bash
+cd obsidian-plugin
+npm install
+npm run build
+
+# Copy to your vault
+cp main.js manifest.json styles.css \
+  /path/to/your/vault/.obsidian/plugins/jeeves-meeting-recorder/
+```
+
+Then enable "Jeeves Meeting Recorder" in Obsidian Settings → Community Plugins.
+
+### Usage
+
+1. Click 🎤 in the ribbon to start recording
+2. Click again to stop
+3. A structured note appears in your `Meetings/` folder with summary, key points, actions, and transcription
+
+---
+
+## iOS App
+
+The iOS app connects to your Mac's whisper server over LAN.
+
+### Setup
+
+1. Expose whisper-server to LAN:
+   ```bash
+   # Change 127.0.0.1 to 0.0.0.0 in the launchd plist
+   sed -i '' 's/127.0.0.1/0.0.0.0/' ~/Library/LaunchAgents/com.jeeves.whisper-server.plist
+   launchctl unload ~/Library/LaunchAgents/com.jeeves.whisper-server.plist
+   launchctl load ~/Library/LaunchAgents/com.jeeves.whisper-server.plist
+   ```
+
+2. Find your Mac's IP:
+   ```bash
+   ipconfig getifaddr en0
+   ```
+
+3. In the iOS app Settings, set Base URL to `http://<your-mac-ip>:8178`
+
+4. Build with Xcode (requires Apple Developer account for device deployment)
+
+---
+
+## System Audio Capture (Record Zoom/Teams)
+
+To record system audio (not just microphone):
+
+1. Install BlackHole: `brew install blackhole-2ch`
+2. Open **Audio MIDI Setup** → Create **Multi-Output Device** (Speakers + BlackHole)
+3. Set the Multi-Output as your system audio output
+4. In Jeeves Settings → Audio Input Device → Select "BlackHole 2ch"
+
+---
+
+## Project Structure
+
+```
+Jeeves/
+├── shared/                 # Kotlin Multiplatform shared code
+│   └── src/commonMain/     # Domain models, AI clients, recording manager
+├── desktopApp/             # Compose Desktop app (macOS/Windows)
+│   └── src/desktopMain/    # Audio recorder, streaming, UI screens
+├── iosApp/                 # SwiftUI iOS app
+│   └── Jeeves/             # Views, audio, network clients
+├── obsidian-plugin/        # Obsidian community plugin
+│   └── main.ts             # Plugin source
+├── whisperx-server/        # WhisperX Python API server
+│   └── server.py           # Flask server wrapping WhisperX
+└── gradle/                 # Gradle wrapper
+```
+
+---
+
+## Available Models
+
+| Model | Size | Speed | Accuracy | Use Case |
+|-------|------|-------|----------|----------|
+| ggml-tiny | 75MB | Fastest | Lower | Quick notes |
+| ggml-base | 142MB | Fast | Decent | Daily use |
+| **ggml-small** | 465MB | Good | **Recommended** | Meetings |
+| ggml-medium | 1.5GB | Slower | Better | Important recordings |
+| ggml-large-v3 | 3GB | Slowest | Best | Critical accuracy |
+
+---
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|-----------|
-| Shared logic | Kotlin Multiplatform |
-| Desktop UI | Compose Desktop (Material 3) |
-| iOS UI | SwiftUI |
-| iOS widget | WidgetKit + AppIntents |
-| HTTP client | Ktor (shared), URLSession (iOS) |
-| Audio (desktop) | javax.sound.sampled |
-| Audio (iOS) | AVAudioRecorder |
-| Global hotkey | JNativeHook |
-| Serialization | kotlinx.serialization / Codable |
+- **Desktop**: Kotlin Multiplatform + Compose Desktop
+- **iOS**: SwiftUI
+- **Obsidian Plugin**: TypeScript
+- **Transcription**: whisper.cpp / WhisperX (local)
+- **Summarization**: Ollama (local LLM)
+- **Audio**: javax.sound.sampled (desktop), AVFoundation (iOS), Web Audio API (Obsidian)
+
+---
 
 ## License
 
-Private project.
+MIT
