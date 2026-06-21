@@ -60,23 +60,39 @@ class RemindersExportService {
 
     private fun runAppleScript(script: String): Boolean {
         return try {
-            // Write script to temp file to avoid shell escaping issues
-            val tmpFile = java.io.File.createTempFile("jeeves_script", ".scpt")
+            // Write script to a file in the Jeeves data directory (not tmp, which may be sandboxed)
+            val scriptDir = java.io.File(System.getProperty("user.home"), "Jeeves")
+            scriptDir.mkdirs()
+            val tmpFile = java.io.File(scriptDir, "reminder_script.scpt")
             tmpFile.writeText(script)
-            tmpFile.deleteOnExit()
 
             val process = ProcessBuilder("/usr/bin/osascript", tmpFile.absolutePath)
                 .redirectErrorStream(true)
                 .start()
-            val exitCode = process.waitFor()
-            if (exitCode != 0) {
-                val error = process.inputStream.bufferedReader().readText()
-                AppLogger.error("RemindersExport", "AppleScript failed (exit $exitCode): $error")
+
+            // Read output first (prevents deadlock on large error messages)
+            val output = process.inputStream.bufferedReader().readText()
+
+            // Wait with timeout (10 seconds - allows time for permission dialog)
+            val completed = process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+
+            if (!completed) {
+                process.destroyForcibly()
+                AppLogger.error("RemindersExport", "AppleScript timed out (10s) - may need automation permission")
+                return false
             }
+
+            val exitCode = process.exitValue()
+            if (exitCode != 0) {
+                AppLogger.error("RemindersExport", "AppleScript failed (exit $exitCode): $output")
+            } else {
+                AppLogger.info("RemindersExport", "AppleScript succeeded: $output")
+            }
+
             tmpFile.delete()
             exitCode == 0
-        } catch (e: IOException) {
-            AppLogger.error("RemindersExport", "Failed to run osascript: ${e.message}")
+        } catch (e: Exception) {
+            AppLogger.error("RemindersExport", "Failed to run osascript: ${e::class.simpleName}: ${e.message}")
             false
         }
     }

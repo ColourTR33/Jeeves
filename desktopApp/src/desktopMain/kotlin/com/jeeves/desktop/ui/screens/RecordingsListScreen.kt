@@ -809,16 +809,27 @@ private fun RecordingDetail(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Export Text")
             }
+
+            // Reminders export with feedback
+            var remindersStatus by remember { mutableStateOf("") }
             OutlinedButton(
                 onClick = {
+                    remindersStatus = "⏳"
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        appState.remindersExportService.exportToReminders(
+                        val count = appState.remindersExportService.exportToReminders(
                             summary?.actionItems ?: emptyList(),
                             recording.title
                         )
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            remindersStatus = if (count > 0) "✅ $count added" else "❌ Failed"
+                        }
+                        kotlinx.coroutines.delay(3000)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            remindersStatus = ""
+                        }
                     }
                 },
-                enabled = summary?.actionItems?.isNotEmpty() == true
+                enabled = summary?.actionItems?.isNotEmpty() == true && remindersStatus != "⏳"
             ) {
                 Icon(
                     Icons.Filled.Notifications,
@@ -826,7 +837,7 @@ private fun RecordingDetail(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Add to Reminders")
+                Text(if (remindersStatus.isEmpty()) "Add to Reminders" else remindersStatus)
             }
             OutlinedButton(
                 onClick = {
