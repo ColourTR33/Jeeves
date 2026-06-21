@@ -1,0 +1,17 @@
+{
+    "name": "jeeves-meeting-recorder",
+    "version": "1.0.0",
+    "description": "Obsidian meeting recorder with local AI transcription and summarization",
+    "main": "main.js",
+    "scripts": {
+        "dev": "node esbuild.config.mjs",
+        "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+    },
+    "keywords": ["obsidian", "meeting", "transcription", "whisper", "recording"],
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "esbuild": "^0.19.0",
+        "obsidian": "latest",
+        "typescript": "^5.0.0"
+    }
+}

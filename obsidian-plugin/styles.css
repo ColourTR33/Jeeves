@@ -1,0 +1,9 @@
+.jeeves-recording {
+    color: red !important;
+    animation: jeeves-pulse 1s infinite;
+}
+
+@keyframes jeeves-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}

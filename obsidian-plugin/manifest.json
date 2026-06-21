@@ -1,0 +1,9 @@
+{
+    "id": "jeeves-meeting-recorder",
+    "name": "Jeeves Meeting Recorder",
+    "version": "1.0.0",
+    "minAppVersion": "1.0.0",
+    "description": "Record meetings, transcribe with local Whisper, summarize with Ollama, and create structured notes.",
+    "author": "Jeeves",
+    "isDesktopOnly": true
+}
