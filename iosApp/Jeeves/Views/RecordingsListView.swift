@@ -251,6 +251,7 @@ private struct TagChip: View {
 
 private struct RecordingRow: View {
     let recording: RecordingItem
+    @EnvironmentObject var appState: AppStateManager
 
     var body: some View {
         HStack(spacing: 12) {
@@ -264,7 +265,7 @@ private struct RecordingRow: View {
 
                 HStack(spacing: 4) {
                     Text(formatTime(recording.createdAt))
-                    Text("·").foregroundColor(.secondary.opacity(0.5))
+                    Text("\u{00B7}").foregroundColor(.secondary.opacity(0.5))
                     Text(formatDuration(recording.durationMs))
                 }
                 .font(.caption).foregroundColor(.secondary)
@@ -275,6 +276,13 @@ private struct RecordingRow: View {
                         .foregroundColor(.purple)
                         .lineLimit(1)
                 }
+            }
+
+            Spacer()
+
+            // Processing status indicator
+            if let status = appState.processingStatus[recording.id] {
+                ProcessingStatusBadge(status: status)
             }
         }
         .padding(.vertical, 4)
@@ -288,6 +296,38 @@ private struct RecordingRow: View {
         if h > 0 { return "\(h)h \(m % 60)m" }
         if m > 0 { return "\(m)m \(s % 60)s" }
         return "\(s)s"
+    }
+}
+
+// MARK: - Processing Status Badge
+
+private struct ProcessingStatusBadge: View {
+    let status: ProcessingStatus
+
+    var body: some View {
+        switch status {
+        case .waiting:
+            Image(systemName: "clock")
+                .font(.caption2)
+                .foregroundColor(.orange)
+        case .transcribing:
+            ProgressView()
+                .scaleEffect(0.6)
+                .frame(width: 16, height: 16)
+        case .summarizing:
+            ProgressView()
+                .scaleEffect(0.6)
+                .tint(.purple)
+                .frame(width: 16, height: 16)
+        case .complete:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption2)
+                .foregroundColor(.green)
+        case .failed:
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.caption2)
+                .foregroundColor(.red)
+        }
     }
 }
 

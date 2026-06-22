@@ -503,6 +503,10 @@ private fun RecordingListItem(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val appState = LocalAppState.current
+    val queueItems by appState.recordingManager.processingQueue.queue.collectAsState()
+    val processingItem = queueItems.find { it.recordingId == recording.id }
+
     val backgroundColor by animateColorAsState(
         if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
         else MaterialTheme.colorScheme.surface
@@ -575,7 +579,10 @@ private fun RecordingListItem(
                 }
             }
 
-            // Delete button (subtle, shown on hover ideally but always visible for now)
+            // Processing status indicator
+            ProcessingStatusIcon(processingItem)
+
+            // Delete button
             IconButton(
                 onClick = onDelete,
                 modifier = Modifier.size(28.dp)
@@ -588,6 +595,64 @@ private fun RecordingListItem(
                 )
             }
         }
+    }
+}
+
+/**
+ * Small icon showing the processing status of a recording.
+ * - WAITING: hourglass icon (amber)
+ * - TRANSCRIBING: small spinner (blue)
+ * - SUMMARIZING: small spinner (purple)
+ * - COMPLETE: checkmark (green)
+ * - FAILED: error icon (red)
+ * - null (not in queue): no icon shown
+ */
+@Composable
+private fun ProcessingStatusIcon(item: com.jeeves.shared.recording.ProcessingItem?) {
+    if (item == null) return
+
+    val (icon, tint, description) = when (item.status) {
+        com.jeeves.shared.recording.ProcessingStatus.WAITING -> Triple(
+            Icons.Filled.Schedule,
+            MaterialTheme.colorScheme.tertiary,
+            "Queued"
+        )
+        com.jeeves.shared.recording.ProcessingStatus.TRANSCRIBING -> Triple(
+            Icons.Filled.Mic,
+            MaterialTheme.colorScheme.primary,
+            "Transcribing"
+        )
+        com.jeeves.shared.recording.ProcessingStatus.SUMMARIZING -> Triple(
+            Icons.Filled.AutoAwesome,
+            MaterialTheme.colorScheme.secondary,
+            "Summarising"
+        )
+        com.jeeves.shared.recording.ProcessingStatus.COMPLETE -> Triple(
+            Icons.Filled.CheckCircle,
+            MaterialTheme.colorScheme.primary,
+            "Complete"
+        )
+        com.jeeves.shared.recording.ProcessingStatus.FAILED -> Triple(
+            Icons.Filled.Error,
+            MaterialTheme.colorScheme.error,
+            "Failed"
+        )
+    }
+
+    if (item.status == com.jeeves.shared.recording.ProcessingStatus.TRANSCRIBING ||
+        item.status == com.jeeves.shared.recording.ProcessingStatus.SUMMARIZING) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(16.dp).padding(end = 4.dp),
+            strokeWidth = 2.dp,
+            color = tint
+        )
+    } else {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            modifier = Modifier.size(16.dp).padding(end = 4.dp),
+            tint = tint
+        )
     }
 }
 
@@ -958,20 +1023,32 @@ private fun SummaryView(summary: SummaryResult?) {
 private fun TranscriptionView(transcription: TranscriptionResult?, recording: Recording) {
     if (transcription == null) {
         val appState = LocalAppState.current
-        val scope = rememberCoroutineScope()
-        val processingState by appState.recordingManager.state.collectAsState()
-        val progress by appState.recordingManager.transcriptionProgress.collectAsState()
+        val queueItems by appState.recordingManager.processingQueue.queue.collectAsState()
+        val itemInQueue = queueItems.find { it.recordingId == recording.id }
+        val isProcessing = itemInQueue != null &&
+            itemInQueue.status != com.jeeves.shared.recording.ProcessingStatus.COMPLETE &&
+            itemInQueue.status != com.jeeves.shared.recording.ProcessingStatus.FAILED
 
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(top = 32.dp)) {
             Text("No transcription available yet.", style = MaterialTheme.typography.bodyMedium)
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (processingState == com.jeeves.shared.domain.RecordingState.PROCESSING) {
-                Text(
-                    text = progress ?: "Processing...",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
+            if (isProcessing) {
+                val statusText = when (itemInQueue?.status) {
+                    com.jeeves.shared.recording.ProcessingStatus.WAITING -> "Queued..."
+                    com.jeeves.shared.recording.ProcessingStatus.TRANSCRIBING -> "Transcribing..."
+                    com.jeeves.shared.recording.ProcessingStatus.SUMMARIZING -> "Summarising..."
+                    else -> "Processing..."
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             } else {
                 Button(
                     onClick = { appState.recordingManager.retranscribeRecording(recording) }

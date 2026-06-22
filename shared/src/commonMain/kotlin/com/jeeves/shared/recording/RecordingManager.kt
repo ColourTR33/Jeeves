@@ -36,7 +36,8 @@ interface StreamingCallback {
 
 /**
  * Central manager for recording sessions.
- * Coordinates the recording, transcription, and summarization pipeline.
+ * Coordinates recording start/stop and delegates transcription/summarization
+ * to the ProcessingQueue for async, non-blocking processing.
  */
 class RecordingManager(
     private val audioRecorder: AudioRecorder,
@@ -58,6 +59,15 @@ class RecordingManager(
 
     private val _transcriptionProgress = MutableStateFlow<String?>(null)
     val transcriptionProgress: StateFlow<String?> = _transcriptionProgress.asStateFlow()
+
+    /** The processing queue handles transcription and summarization asynchronously. */
+    val processingQueue = ProcessingQueue(
+        whisperClient = whisperClient,
+        ollamaClient = ollamaClient,
+        settingsRepository = settingsRepository,
+        recordingsRepository = recordingsRepository,
+        scope = scope
+    )
 
     private var recordingStartTime: Long = 0
 
@@ -101,10 +111,14 @@ class RecordingManager(
     }
 
     /**
-     * Stop recording and begin transcription pipeline.
+     * Stop recording and enqueue for async transcription/summarization.
+     * Returns immediately to IDLE so the user can start another recording.
      */
     suspend fun stopRecording() {
         try {
+            // Capture streaming transcript before stopping
+            val streamingText = streamingCallback?.getStreamingTranscript()
+
             // Notify streaming callback before stopping the recorder
             streamingCallback?.onRecordingStopping()
 
@@ -120,9 +134,12 @@ class RecordingManager(
 
             _currentRecording.value = recording
             recordingsRepository.saveRecording(recording)
-            _state.value = RecordingState.PROCESSING
 
-            processRecording(recording)
+            // Enqueue for async processing — returns immediately
+            processingQueue.enqueue(recording, streamingTranscript = streamingText)
+            _state.value = RecordingState.IDLE
+
+            AppLogger.info("RecordingManager", "Recording saved and enqueued: ${recording.id}")
         } catch (e: Exception) {
             _error.value = "Failed to stop recording: ${e.message}"
             _state.value = RecordingState.IDLE
@@ -145,127 +162,16 @@ class RecordingManager(
         _state.value = RecordingState.RECORDING
     }
 
-    /**
-     * Process a recording: transcribe then summarise.
-     * If a streaming transcript was captured during recording, use it directly
-     * instead of re-transcribing the full file (avoids timeouts on long recordings).
-     */
-    private suspend fun processRecording(recording: Recording) {
-        try {
-            val settings = settingsRepository.getSettings()
-
-            // Step 1: Transcribe — prefer streaming transcript for long recordings
-            AppLogger.info("RecordingManager", "Starting transcription for recording: ${recording.id}")
-            AppLogger.info("RecordingManager", "Audio file: ${recording.filePath}")
-            _transcriptionProgress.value = "Transcribing audio..."
-
-            val streamingText = streamingCallback?.getStreamingTranscript()
-            val useStreamingTranscript = !streamingText.isNullOrBlank() &&
-                recording.durationMs > 120_000 // Use streaming for recordings > 2 min
-
-            val transcription = if (useStreamingTranscript) {
-                AppLogger.info("RecordingManager", "Using streaming transcript (${streamingText!!.length} chars) — skipping full-file transcription")
-                TranscriptionResult(
-                    recordingId = recording.id,
-                    text = streamingText,
-                    segments = emptyList(),
-                    language = "en",
-                    durationMs = recording.durationMs
-                )
-            } else {
-                AppLogger.info("RecordingManager", "Transcription endpoint: ${settings.transcriptionEndpoint.baseUrl}")
-                AppLogger.info("RecordingManager", "Diarization: enabled=${settings.diarizationEnabled}, mode=${settings.diarizationMode}")
-                whisperClient.transcribe(
-                    audioFilePath = recording.filePath,
-                    config = settings.transcriptionEndpoint,
-                    diarizationEnabled = settings.diarizationEnabled,
-                    diarizationMode = settings.diarizationMode
-                ).copy(recordingId = recording.id)
-            }
-
-            AppLogger.info("RecordingManager", "Transcription complete: ${transcription.text.take(100)}...")
-            recordingsRepository.saveTranscription(transcription)
-            _transcriptionProgress.value = "Transcription complete. Summarising..."
-
-            // Step 2: Summarise — use speaker-attributed text when speakers are present
-            AppLogger.info("RecordingManager", "Starting summarization with: ${settings.summarizationEndpoint.baseUrl}")
-            val transcriptionForSummary = if (hasSpeakerLabels(transcription.segments)) {
-                AppLogger.info("RecordingManager", "Using speaker-attributed text for summarization")
-                transcription.copy(text = formatWithSpeakers(transcription.segments))
-            } else {
-                transcription
-            }
-            val summary = ollamaClient.summarize(
-                transcription = transcriptionForSummary,
-                config = settings.summarizationEndpoint
-            )
-
-            recordingsRepository.saveSummary(summary)
-            AppLogger.info("RecordingManager", "Summarization complete")
-            _transcriptionProgress.value = null
-            _state.value = RecordingState.IDLE
-        } catch (e: Exception) {
-            AppLogger.error("RecordingManager", "Processing failed: ${e.message}", e)
-            _error.value = "Processing failed: ${e.message}"
-            _transcriptionProgress.value = null
-            _state.value = RecordingState.IDLE
-        }
-    }
-
     fun clearError() {
         _error.value = null
     }
 
     /**
-     * Retranscribe an existing recording that has no transcription (or a failed one).
-     * Sends the audio file to Whisper for full transcription, then summarises.
+     * Retranscribe an existing recording.
+     * Enqueues it for async processing via the queue.
      */
     fun retranscribeRecording(recording: Recording) {
-        if (_state.value == RecordingState.PROCESSING) return
-        scope.launch {
-            _state.value = RecordingState.PROCESSING
-            _currentRecording.value = recording
-            _error.value = null
-            try {
-                val settings = settingsRepository.getSettings()
-
-                AppLogger.info("RecordingManager", "Retranscribing recording: ${recording.id}")
-                AppLogger.info("RecordingManager", "Audio file: ${recording.filePath}")
-                _transcriptionProgress.value = "Retranscribing audio..."
-
-                val transcription = whisperClient.transcribe(
-                    audioFilePath = recording.filePath,
-                    config = settings.transcriptionEndpoint,
-                    diarizationEnabled = settings.diarizationEnabled,
-                    diarizationMode = settings.diarizationMode
-                ).copy(recordingId = recording.id)
-
-                AppLogger.info("RecordingManager", "Retranscription complete: ${transcription.text.take(100)}...")
-                recordingsRepository.saveTranscription(transcription)
-                _transcriptionProgress.value = "Transcription complete. Summarising..."
-
-                // Summarise
-                val transcriptionForSummary = if (hasSpeakerLabels(transcription.segments)) {
-                    transcription.copy(text = formatWithSpeakers(transcription.segments))
-                } else {
-                    transcription
-                }
-                val summary = ollamaClient.summarize(
-                    transcription = transcriptionForSummary,
-                    config = settings.summarizationEndpoint
-                )
-
-                recordingsRepository.saveSummary(summary)
-                AppLogger.info("RecordingManager", "Retranscription + summarization complete")
-                _transcriptionProgress.value = null
-                _state.value = RecordingState.IDLE
-            } catch (e: Exception) {
-                AppLogger.error("RecordingManager", "Retranscription failed: ${e.message}", e)
-                _error.value = "Retranscription failed: ${e.message}"
-                _transcriptionProgress.value = null
-                _state.value = RecordingState.IDLE
-            }
-        }
+        processingQueue.enqueue(recording)
     }
 }
 

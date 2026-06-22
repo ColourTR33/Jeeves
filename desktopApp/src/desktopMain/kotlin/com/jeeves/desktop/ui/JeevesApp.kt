@@ -34,6 +34,33 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
     // Observe error and progress from RecordingManager
     val error by appState.recordingManager.error.collectAsState()
     val progress by appState.recordingManager.transcriptionProgress.collectAsState()
+    val queueItems by appState.recordingManager.processingQueue.queue.collectAsState()
+
+    // Derive banner message from queue state
+    val activeItem = queueItems.firstOrNull {
+        it.status == com.jeeves.shared.recording.ProcessingStatus.TRANSCRIBING ||
+        it.status == com.jeeves.shared.recording.ProcessingStatus.SUMMARIZING
+    }
+    val waitingCount = queueItems.count { it.status == com.jeeves.shared.recording.ProcessingStatus.WAITING }
+    val failedItem = queueItems.lastOrNull { it.status == com.jeeves.shared.recording.ProcessingStatus.FAILED }
+
+    val bannerMessage = when {
+        error != null -> error
+        activeItem != null -> {
+            val statusLabel = if (activeItem.status == com.jeeves.shared.recording.ProcessingStatus.TRANSCRIBING) "Transcribing" else "Summarising"
+            val queueSuffix = if (waitingCount > 0) " ($waitingCount more queued)" else ""
+            "$statusLabel recording...$queueSuffix"
+        }
+        failedItem != null -> "Processing failed: ${failedItem.error ?: "unknown error"}"
+        progress != null -> progress
+        else -> null
+    }
+    val bannerType = when {
+        error != null -> NotificationType.ERROR
+        failedItem != null && activeItem == null -> NotificationType.ERROR
+        activeItem != null || progress != null -> NotificationType.PROGRESS
+        else -> NotificationType.INFO
+    }
 
     MaterialTheme(
         colorScheme = darkColorScheme()
@@ -50,7 +77,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Main content
-                    Column(modifier = Modifier.fillMaxSize().padding(bottom = if (error != null || progress != null) 40.dp else 0.dp)) {
+                    Column(modifier = Modifier.fillMaxSize().padding(bottom = if (bannerMessage != null) 40.dp else 0.dp)) {
                         NavBar(currentScreen) { screen -> currentScreen = screen }
 
                         when (currentScreen) {
@@ -62,17 +89,15 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
 
                     // Bottom notification banner
                     Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-                        when {
-                            error != null -> NotificationBanner(
-                                message = error,
-                                type = NotificationType.ERROR,
-                                onDismiss = { appState.recordingManager.clearError() }
-                            )
-                            progress != null -> NotificationBanner(
-                                message = progress,
-                                type = NotificationType.PROGRESS
-                            )
-                        }
+                        NotificationBanner(
+                            message = bannerMessage,
+                            type = bannerType,
+                            onDismiss = when {
+                                error != null -> {{ appState.recordingManager.clearError() }}
+                                failedItem != null && activeItem == null -> {{ appState.recordingManager.processingQueue.clearCompleted() }}
+                                else -> null
+                            }
+                        )
                     }
                 }
             }

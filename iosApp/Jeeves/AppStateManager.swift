@@ -16,6 +16,9 @@ class AppStateManager: ObservableObject {
     @Published var liveTranscript: String = ""
     @Published var isTranscribing: Bool = false
 
+    // Processing queue status per recording
+    @Published var processingStatus: [String: ProcessingStatus] = [:]
+
     // Meeting template for current session
     @Published var selectedTemplate: MeetingTemplate = .general
 
@@ -81,6 +84,9 @@ class AppStateManager: ObservableObject {
     }
 
     func stopRecording() {
+        // Capture streaming transcript before stopping
+        let streamingText = liveTranscript
+        
         streamingClient?.stop()
         streamingClient = nil
         audioRecorder.stopRecording()
@@ -104,8 +110,9 @@ class AppStateManager: ObservableObject {
         recordings.insert(recording, at: 0)
         saveRecordings()
 
-        recordingState = .processing
-        processRecording(recording)
+        // Enqueue for async processing — return to idle immediately
+        recordingState = .idle
+        enqueueProcessing(recording, streamingTranscript: streamingText)
     }
 
     func pauseRecording() {
@@ -120,25 +127,51 @@ class AppStateManager: ObservableObject {
         startTimer()
     }
 
-    // MARK: - Processing
+    // MARK: - Processing Queue
 
-    private func processRecording(_ recording: RecordingItem) {
-        progress = "Transcribing audio..."
+    private var processingQueue: [ProcessingQueueItem] = []
+    private var isQueueProcessing = false
 
-        // Capture the streaming transcript before it gets cleared
-        let streamingText = liveTranscript
-        let useStreaming = !streamingText.isEmpty && recording.durationMs > 120_000 // > 2 min
+    private struct ProcessingQueueItem {
+        let recording: RecordingItem
+        let streamingTranscript: String?
+    }
+
+    /// Enqueue a recording for async transcription and summarization.
+    func enqueueProcessing(_ recording: RecordingItem, streamingTranscript: String? = nil) {
+        // Don't add duplicates
+        guard !processingQueue.contains(where: { $0.recording.id == recording.id }) else { return }
+        guard processingStatus[recording.id] != .transcribing && processingStatus[recording.id] != .summarizing else { return }
+
+        processingStatus[recording.id] = .waiting
+        processingQueue.append(ProcessingQueueItem(recording: recording, streamingTranscript: streamingTranscript))
+        processNextInQueue()
+    }
+
+    private func processNextInQueue() {
+        guard !isQueueProcessing else { return }
+        guard let item = processingQueue.first else { return }
+
+        isQueueProcessing = true
+        processingQueue.removeFirst()
+        processRecordingAsync(item)
+    }
+
+    private func processRecordingAsync(_ item: ProcessingQueueItem) {
+        let recording = item.recording
+        let streamingText = item.streamingTranscript ?? ""
+        let useStreaming = !streamingText.isEmpty && recording.durationMs > 120_000
+
+        processingStatus[recording.id] = .transcribing
 
         Task {
             do {
                 let transcription: String
 
                 if useStreaming {
-                    // Use accumulated streaming transcript for long recordings (avoids timeout)
-                    print("[Jeeves] Using streaming transcript (\(streamingText.count) chars) — skipping full-file transcription")
+                    print("[Jeeves] Using streaming transcript (\(streamingText.count) chars)")
                     transcription = streamingText
                 } else {
-                    // Transcribe via Whisper API (short recordings or no streaming data)
                     transcription = try await WhisperAPIClient.shared.transcribe(
                         audioFilePath: recording.filePath,
                         baseUrl: settings.whisperBaseUrl,
@@ -146,14 +179,12 @@ class AppStateManager: ObservableObject {
                     )
                 }
 
-                await MainActor.run {
-                    self.progress = "Summarising transcription..."
-                }
-
-                // Save transcription
                 saveTranscription(transcription, for: recording.id)
 
-                // Summarise via Ollama/LLM API
+                await MainActor.run {
+                    self.processingStatus[recording.id] = .summarizing
+                }
+
                 let summary = try await OllamaAPIClient.shared.summarize(
                     transcription: transcription,
                     baseUrl: settings.ollamaBaseUrl,
@@ -163,14 +194,16 @@ class AppStateManager: ObservableObject {
                 saveSummary(summary, for: recording.id)
 
                 await MainActor.run {
-                    self.progress = nil
-                    self.recordingState = .idle
+                    self.processingStatus[recording.id] = .complete
+                    self.isQueueProcessing = false
+                    self.processNextInQueue()
                 }
             } catch {
                 await MainActor.run {
+                    self.processingStatus[recording.id] = .failed
                     self.error = "Processing failed: \(error.localizedDescription)"
-                    self.progress = nil
-                    self.recordingState = .idle
+                    self.isQueueProcessing = false
+                    self.processNextInQueue()
                 }
             }
         }
@@ -179,45 +212,7 @@ class AppStateManager: ObservableObject {
     // MARK: - Retranscribe
 
     func retranscribeRecording(_ recording: RecordingItem) {
-        guard recordingState == .idle else { return }
-        recordingState = .processing
-        progress = "Retranscribing audio..."
-        error = nil
-
-        Task {
-            do {
-                let transcription = try await WhisperAPIClient.shared.transcribe(
-                    audioFilePath: recording.filePath,
-                    baseUrl: settings.whisperBaseUrl,
-                    model: settings.whisperModel
-                )
-
-                await MainActor.run {
-                    self.progress = "Summarising transcription..."
-                }
-
-                saveTranscription(transcription, for: recording.id)
-
-                let summary = try await OllamaAPIClient.shared.summarize(
-                    transcription: transcription,
-                    baseUrl: settings.ollamaBaseUrl,
-                    model: settings.ollamaModel
-                )
-
-                saveSummary(summary, for: recording.id)
-
-                await MainActor.run {
-                    self.progress = nil
-                    self.recordingState = .idle
-                }
-            } catch {
-                await MainActor.run {
-                    self.error = "Retranscription failed: \(error.localizedDescription)"
-                    self.progress = nil
-                    self.recordingState = .idle
-                }
-            }
-        }
+        enqueueProcessing(recording, streamingTranscript: nil)
     }
 
     // MARK: - Timer
@@ -459,6 +454,10 @@ class AppStateManager: ObservableObject {
 
 enum RecordingState {
     case idle, recording, paused, processing
+}
+
+enum ProcessingStatus {
+    case waiting, transcribing, summarizing, complete, failed
 }
 
 enum MeetingTemplate: String, Codable, CaseIterable {

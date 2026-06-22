@@ -1,0 +1,201 @@
+package com.jeeves.shared.recording
+
+import com.jeeves.shared.ai.AppLogger
+import com.jeeves.shared.ai.OllamaClient
+import com.jeeves.shared.ai.WhisperClient
+import com.jeeves.shared.ai.formatWithSpeakers
+import com.jeeves.shared.ai.hasSpeakerLabels
+import com.jeeves.shared.domain.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/**
+ * Processing status for a recording's transcription and summarization pipeline.
+ */
+enum class ProcessingStatus {
+    /** Queued but not yet started */
+    WAITING,
+    /** Transcription is in progress */
+    TRANSCRIBING,
+    /** Summarization is in progress */
+    SUMMARIZING,
+    /** Both transcription and summarization completed successfully */
+    COMPLETE,
+    /** Processing failed at some stage */
+    FAILED
+}
+
+/**
+ * Represents the processing state of a single recording in the queue.
+ */
+data class ProcessingItem(
+    val recordingId: String,
+    val status: ProcessingStatus,
+    val error: String? = null,
+    /** Optional streaming transcript text to use instead of full-file transcription */
+    val streamingTranscript: String? = null
+)
+
+/**
+ * Asynchronous processing queue that handles transcription and summarization
+ * for recordings independently. Items are processed sequentially (one at a time)
+ * to avoid overloading the local Whisper server.
+ */
+class ProcessingQueue(
+    private val whisperClient: WhisperClient,
+    private val ollamaClient: OllamaClient,
+    private val settingsRepository: SettingsRepository,
+    private val recordingsRepository: RecordingsRepository,
+    private val scope: CoroutineScope
+) {
+    private val _queue = MutableStateFlow<List<ProcessingItem>>(emptyList())
+    val queue: StateFlow<List<ProcessingItem>> = _queue.asStateFlow()
+
+    private val mutex = Mutex()
+    private var processingJob: Job? = null
+
+    /**
+     * Get the current processing status of a recording, or null if not in queue.
+     */
+    fun getStatus(recordingId: String): ProcessingStatus? {
+        return _queue.value.find { it.recordingId == recordingId }?.status
+    }
+
+    /**
+     * Enqueue a recording for transcription and summarization.
+     * If already in queue (and not COMPLETE/FAILED), it won't be added again.
+     * If COMPLETE or FAILED, it will be re-queued (for retranscribe).
+     */
+    fun enqueue(recording: Recording, streamingTranscript: String? = null) {
+        val existing = _queue.value.find { it.recordingId == recording.id }
+        if (existing != null && existing.status != ProcessingStatus.COMPLETE && existing.status != ProcessingStatus.FAILED) {
+            return // Already queued/in progress
+        }
+
+        _queue.update { currentQueue ->
+            val filtered = currentQueue.filter { it.recordingId != recording.id }
+            filtered + ProcessingItem(
+                recordingId = recording.id,
+                status = ProcessingStatus.WAITING,
+                streamingTranscript = streamingTranscript
+            )
+        }
+
+        // Start processing if not already running
+        startProcessingIfIdle()
+    }
+
+    /**
+     * Remove completed/failed items from the queue (cleanup).
+     */
+    fun clearCompleted() {
+        _queue.update { it.filter { item -> item.status != ProcessingStatus.COMPLETE } }
+    }
+
+    /**
+     * Remove a specific item from the queue (e.g., cancel waiting item).
+     */
+    fun remove(recordingId: String) {
+        val item = _queue.value.find { it.recordingId == recordingId }
+        if (item != null && item.status == ProcessingStatus.WAITING) {
+            _queue.update { it.filter { i -> i.recordingId != recordingId } }
+        }
+    }
+
+    private fun startProcessingIfIdle() {
+        if (processingJob?.isActive == true) return
+
+        processingJob = scope.launch {
+            processNextItem()
+        }
+    }
+
+    private suspend fun processNextItem() {
+        while (true) {
+            val nextItem = mutex.withLock {
+                _queue.value.firstOrNull { it.status == ProcessingStatus.WAITING }
+            } ?: break // No more items to process
+
+            processItem(nextItem)
+        }
+    }
+
+    private suspend fun processItem(item: ProcessingItem) {
+        val recording = recordingsRepository.getRecording(item.recordingId)
+        if (recording == null) {
+            updateStatus(item.recordingId, ProcessingStatus.FAILED, "Recording not found")
+            return
+        }
+
+        try {
+            val settings = settingsRepository.getSettings()
+
+            // Step 1: Transcribe
+            updateStatus(item.recordingId, ProcessingStatus.TRANSCRIBING)
+            AppLogger.info("ProcessingQueue", "Transcribing: ${recording.id} (${recording.filePath})")
+
+            val useStreaming = !item.streamingTranscript.isNullOrBlank() &&
+                recording.durationMs > 120_000
+
+            val transcription = if (useStreaming) {
+                AppLogger.info("ProcessingQueue", "Using streaming transcript (${item.streamingTranscript!!.length} chars)")
+                TranscriptionResult(
+                    recordingId = recording.id,
+                    text = item.streamingTranscript,
+                    segments = emptyList(),
+                    language = "en",
+                    durationMs = recording.durationMs
+                )
+            } else {
+                whisperClient.transcribe(
+                    audioFilePath = recording.filePath,
+                    config = settings.transcriptionEndpoint,
+                    diarizationEnabled = settings.diarizationEnabled,
+                    diarizationMode = settings.diarizationMode
+                ).copy(recordingId = recording.id)
+            }
+
+            recordingsRepository.saveTranscription(transcription)
+            AppLogger.info("ProcessingQueue", "Transcription complete for ${recording.id}")
+
+            // Step 2: Summarize
+            updateStatus(item.recordingId, ProcessingStatus.SUMMARIZING)
+            AppLogger.info("ProcessingQueue", "Summarizing: ${recording.id}")
+
+            val transcriptionForSummary = if (hasSpeakerLabels(transcription.segments)) {
+                transcription.copy(text = formatWithSpeakers(transcription.segments))
+            } else {
+                transcription
+            }
+
+            val summary = ollamaClient.summarize(
+                transcription = transcriptionForSummary,
+                config = settings.summarizationEndpoint
+            )
+
+            recordingsRepository.saveSummary(summary)
+            AppLogger.info("ProcessingQueue", "Summarization complete for ${recording.id}")
+
+            updateStatus(item.recordingId, ProcessingStatus.COMPLETE)
+
+        } catch (e: Exception) {
+            AppLogger.error("ProcessingQueue", "Failed processing ${recording.id}: ${e.message}", e)
+            updateStatus(item.recordingId, ProcessingStatus.FAILED, e.message)
+        }
+    }
+
+    private fun updateStatus(recordingId: String, status: ProcessingStatus, error: String? = null) {
+        _queue.update { currentQueue ->
+            currentQueue.map {
+                if (it.recordingId == recordingId) it.copy(status = status, error = error) else it
+            }
+        }
+    }
+}
