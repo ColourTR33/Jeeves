@@ -125,14 +125,26 @@ class AppStateManager: ObservableObject {
     private func processRecording(_ recording: RecordingItem) {
         progress = "Transcribing audio..."
 
+        // Capture the streaming transcript before it gets cleared
+        let streamingText = liveTranscript
+        let useStreaming = !streamingText.isEmpty && recording.durationMs > 120_000 // > 2 min
+
         Task {
             do {
-                // Transcribe via Whisper API
-                let transcription = try await WhisperAPIClient.shared.transcribe(
-                    audioFilePath: recording.filePath,
-                    baseUrl: settings.whisperBaseUrl,
-                    model: settings.whisperModel
-                )
+                let transcription: String
+
+                if useStreaming {
+                    // Use accumulated streaming transcript for long recordings (avoids timeout)
+                    print("[Jeeves] Using streaming transcript (\(streamingText.count) chars) — skipping full-file transcription")
+                    transcription = streamingText
+                } else {
+                    // Transcribe via Whisper API (short recordings or no streaming data)
+                    transcription = try await WhisperAPIClient.shared.transcribe(
+                        audioFilePath: recording.filePath,
+                        baseUrl: settings.whisperBaseUrl,
+                        model: settings.whisperModel
+                    )
+                }
 
                 await MainActor.run {
                     self.progress = "Summarising transcription..."

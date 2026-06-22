@@ -24,7 +24,7 @@ fun createHttpClient(): HttpClient {
         }
 
         install(HttpTimeout) {
-            requestTimeoutMillis = 300_000 // 5 min for long transcriptions
+            requestTimeoutMillis = 1_800_000 // 30 min for long chunked transcriptions on CPU
             connectTimeoutMillis = 10_000
         }
     }

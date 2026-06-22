@@ -26,6 +26,12 @@ interface StreamingCallback {
 
     /** Called at the start of stopRecording, before the audio recorder is stopped. */
     fun onRecordingStopping()
+
+    /**
+     * Returns the accumulated streaming transcript text captured during recording.
+     * Returns null or empty string if streaming was not active or captured nothing.
+     */
+    fun getStreamingTranscript(): String?
 }
 
 /**
@@ -141,24 +147,41 @@ class RecordingManager(
 
     /**
      * Process a recording: transcribe then summarise.
+     * If a streaming transcript was captured during recording, use it directly
+     * instead of re-transcribing the full file (avoids timeouts on long recordings).
      */
     private suspend fun processRecording(recording: Recording) {
         try {
             val settings = settingsRepository.getSettings()
 
-            // Step 1: Transcribe
+            // Step 1: Transcribe — prefer streaming transcript for long recordings
             AppLogger.info("RecordingManager", "Starting transcription for recording: ${recording.id}")
             AppLogger.info("RecordingManager", "Audio file: ${recording.filePath}")
-            AppLogger.info("RecordingManager", "Transcription endpoint: ${settings.transcriptionEndpoint.baseUrl}")
-            AppLogger.info("RecordingManager", "Diarization: enabled=${settings.diarizationEnabled}, mode=${settings.diarizationMode}")
             _transcriptionProgress.value = "Transcribing audio..."
 
-            val transcription = whisperClient.transcribe(
-                audioFilePath = recording.filePath,
-                config = settings.transcriptionEndpoint,
-                diarizationEnabled = settings.diarizationEnabled,
-                diarizationMode = settings.diarizationMode
-            ).copy(recordingId = recording.id)
+            val streamingText = streamingCallback?.getStreamingTranscript()
+            val useStreamingTranscript = !streamingText.isNullOrBlank() &&
+                recording.durationMs > 120_000 // Use streaming for recordings > 2 min
+
+            val transcription = if (useStreamingTranscript) {
+                AppLogger.info("RecordingManager", "Using streaming transcript (${streamingText!!.length} chars) — skipping full-file transcription")
+                TranscriptionResult(
+                    recordingId = recording.id,
+                    text = streamingText,
+                    segments = emptyList(),
+                    language = "en",
+                    durationMs = recording.durationMs
+                )
+            } else {
+                AppLogger.info("RecordingManager", "Transcription endpoint: ${settings.transcriptionEndpoint.baseUrl}")
+                AppLogger.info("RecordingManager", "Diarization: enabled=${settings.diarizationEnabled}, mode=${settings.diarizationMode}")
+                whisperClient.transcribe(
+                    audioFilePath = recording.filePath,
+                    config = settings.transcriptionEndpoint,
+                    diarizationEnabled = settings.diarizationEnabled,
+                    diarizationMode = settings.diarizationMode
+                ).copy(recordingId = recording.id)
+            }
 
             AppLogger.info("RecordingManager", "Transcription complete: ${transcription.text.take(100)}...")
             recordingsRepository.saveTranscription(transcription)

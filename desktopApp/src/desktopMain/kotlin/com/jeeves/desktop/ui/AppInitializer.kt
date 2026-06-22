@@ -56,6 +56,10 @@ class DesktopStreamingCallback(
     override fun onRecordingStopping() {
         streamingTranscriber.stopStreaming()
     }
+
+    override fun getStreamingTranscript(): String? {
+        return streamingTranscriber.liveTranscript.value.takeIf { it.isNotBlank() }
+    }
 }
 
 /** Global AppState instance shared between main window and settings window. */
