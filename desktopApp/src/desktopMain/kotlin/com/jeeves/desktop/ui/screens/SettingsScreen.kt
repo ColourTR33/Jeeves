@@ -219,22 +219,44 @@ fun SettingsScreen() {
                         Text("Refresh Devices")
                     }
 
-                    // Help text for BlackHole
+                    // Help text for system audio capture (platform-specific)
+                    val isMacOS = System.getProperty("os.name").lowercase().contains("mac")
                     val hasBlackHole = availableDevices.any { it.name.contains("BlackHole", ignoreCase = true) }
+                    val hasStereoMix = availableDevices.any { it.name.contains("Stereo Mix", ignoreCase = true) || it.name.contains("CABLE", ignoreCase = true) }
                     Spacer(modifier = Modifier.height(8.dp))
-                    if (hasBlackHole) {
-                        Text(
-                            "✓ BlackHole detected — select it above to capture system audio.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+
+                    if (isMacOS) {
+                        if (hasBlackHole) {
+                            Text(
+                                "✓ BlackHole detected — select it above to capture system audio.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Text(
+                                "To capture system audio on macOS, install BlackHole (a virtual audio driver) " +
+                                    "and set up a Multi-Output Device in Audio MIDI Setup. Then select BlackHole here.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     } else {
-                        Text(
-                            "To capture system audio on macOS, install BlackHole (a virtual audio driver) " +
-                                "and set up a Multi-Output Device in Audio MIDI Setup. Then select BlackHole here.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        // Windows
+                        if (hasStereoMix) {
+                            Text(
+                                "✓ Stereo Mix / virtual cable detected — select it above to capture system audio.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Text(
+                                "To capture system audio on Windows, enable 'Stereo Mix' in Sound Settings " +
+                                    "(Recording tab → right-click → Show Disabled Devices), or install VB-CABLE " +
+                                    "(a virtual audio driver). Then select the device here.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

@@ -90,19 +90,27 @@ class RemindersExportService {
     }
 
     private fun openWithReminders(file: File) {
-        // Use 'open' command to open .ics with default handler (Reminders for VTODO)
-        val process = ProcessBuilder("/usr/bin/open", file.absolutePath)
-            .redirectErrorStream(true)
-            .start()
-
-        val output = process.inputStream.bufferedReader().readText()
-        val completed = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
-
-        if (!completed) {
-            process.destroyForcibly()
-            AppLogger.error("RemindersExport", "open command timed out")
-        } else if (process.exitValue() != 0) {
-            AppLogger.error("RemindersExport", "open failed: $output")
+        // Use java.awt.Desktop to open .ics with the default handler (cross-platform)
+        // On macOS: opens with Reminders (for VTODO) or Calendar
+        // On Windows: opens with the default .ics handler (Outlook, Windows Calendar, etc.)
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(file)
+            } else {
+                // Fallback: platform-specific open command
+                val os = System.getProperty("os.name").lowercase()
+                val command = when {
+                    os.contains("mac") -> listOf("/usr/bin/open", file.absolutePath)
+                    os.contains("win") -> listOf("cmd", "/c", "start", "", file.absolutePath)
+                    else -> listOf("xdg-open", file.absolutePath)
+                }
+                val process = ProcessBuilder(command)
+                    .redirectErrorStream(true)
+                    .start()
+                process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            }
+        } catch (e: Exception) {
+            AppLogger.error("RemindersExport", "Failed to open .ics file: ${e.message}")
         }
     }
 }
