@@ -957,7 +957,31 @@ private fun SummaryView(summary: SummaryResult?) {
 @Composable
 private fun TranscriptionView(transcription: TranscriptionResult?, recording: Recording) {
     if (transcription == null) {
-        Text("No transcription available yet.", style = MaterialTheme.typography.bodyMedium)
+        val appState = LocalAppState.current
+        val scope = rememberCoroutineScope()
+        val processingState by appState.recordingManager.state.collectAsState()
+        val progress by appState.recordingManager.transcriptionProgress.collectAsState()
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(top = 32.dp)) {
+            Text("No transcription available yet.", style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (processingState == com.jeeves.shared.domain.RecordingState.PROCESSING) {
+                Text(
+                    text = progress ?: "Processing...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                Button(
+                    onClick = { appState.recordingManager.retranscribeRecording(recording) }
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Retranscribe")
+                }
+            }
+        }
         return
     }
 

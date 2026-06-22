@@ -512,8 +512,23 @@ struct RecordingDetailView: View {
         } else if let text = appState.getTranscription(for: recording.id) {
             Text(text).font(.body)
         } else {
-            Text("No transcription available yet.")
-                .foregroundColor(.secondary).padding(.top, 32)
+            VStack(spacing: 16) {
+                Text("No transcription available yet.")
+                    .foregroundColor(.secondary).padding(.top, 32)
+
+                if appState.recordingState == .processing {
+                    Text(appState.progress ?? "Processing...")
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                } else {
+                    Button {
+                        appState.retranscribeRecording(recording)
+                    } label: {
+                        Label("Retranscribe", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
         }
     }
 }

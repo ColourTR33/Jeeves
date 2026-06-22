@@ -176,6 +176,50 @@ class AppStateManager: ObservableObject {
         }
     }
 
+    // MARK: - Retranscribe
+
+    func retranscribeRecording(_ recording: RecordingItem) {
+        guard recordingState == .idle else { return }
+        recordingState = .processing
+        progress = "Retranscribing audio..."
+        error = nil
+
+        Task {
+            do {
+                let transcription = try await WhisperAPIClient.shared.transcribe(
+                    audioFilePath: recording.filePath,
+                    baseUrl: settings.whisperBaseUrl,
+                    model: settings.whisperModel
+                )
+
+                await MainActor.run {
+                    self.progress = "Summarising transcription..."
+                }
+
+                saveTranscription(transcription, for: recording.id)
+
+                let summary = try await OllamaAPIClient.shared.summarize(
+                    transcription: transcription,
+                    baseUrl: settings.ollamaBaseUrl,
+                    model: settings.ollamaModel
+                )
+
+                saveSummary(summary, for: recording.id)
+
+                await MainActor.run {
+                    self.progress = nil
+                    self.recordingState = .idle
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = "Retranscription failed: \(error.localizedDescription)"
+                    self.progress = nil
+                    self.recordingState = .idle
+                }
+            }
+        }
+    }
+
     // MARK: - Timer
 
     private func startTimer() {

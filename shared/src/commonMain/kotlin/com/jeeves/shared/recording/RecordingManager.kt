@@ -215,6 +215,58 @@ class RecordingManager(
     fun clearError() {
         _error.value = null
     }
+
+    /**
+     * Retranscribe an existing recording that has no transcription (or a failed one).
+     * Sends the audio file to Whisper for full transcription, then summarises.
+     */
+    fun retranscribeRecording(recording: Recording) {
+        if (_state.value == RecordingState.PROCESSING) return
+        scope.launch {
+            _state.value = RecordingState.PROCESSING
+            _currentRecording.value = recording
+            _error.value = null
+            try {
+                val settings = settingsRepository.getSettings()
+
+                AppLogger.info("RecordingManager", "Retranscribing recording: ${recording.id}")
+                AppLogger.info("RecordingManager", "Audio file: ${recording.filePath}")
+                _transcriptionProgress.value = "Retranscribing audio..."
+
+                val transcription = whisperClient.transcribe(
+                    audioFilePath = recording.filePath,
+                    config = settings.transcriptionEndpoint,
+                    diarizationEnabled = settings.diarizationEnabled,
+                    diarizationMode = settings.diarizationMode
+                ).copy(recordingId = recording.id)
+
+                AppLogger.info("RecordingManager", "Retranscription complete: ${transcription.text.take(100)}...")
+                recordingsRepository.saveTranscription(transcription)
+                _transcriptionProgress.value = "Transcription complete. Summarising..."
+
+                // Summarise
+                val transcriptionForSummary = if (hasSpeakerLabels(transcription.segments)) {
+                    transcription.copy(text = formatWithSpeakers(transcription.segments))
+                } else {
+                    transcription
+                }
+                val summary = ollamaClient.summarize(
+                    transcription = transcriptionForSummary,
+                    config = settings.summarizationEndpoint
+                )
+
+                recordingsRepository.saveSummary(summary)
+                AppLogger.info("RecordingManager", "Retranscription + summarization complete")
+                _transcriptionProgress.value = null
+                _state.value = RecordingState.IDLE
+            } catch (e: Exception) {
+                AppLogger.error("RecordingManager", "Retranscription failed: ${e.message}", e)
+                _error.value = "Retranscription failed: ${e.message}"
+                _transcriptionProgress.value = null
+                _state.value = RecordingState.IDLE
+            }
+        }
+    }
 }
 
 /**
