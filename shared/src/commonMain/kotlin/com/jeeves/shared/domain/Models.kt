@@ -133,7 +133,7 @@ data class AppSettings(
     val summarizationEndpoint: AiEndpointConfig = AiEndpointConfig(
         name = "Local Ollama",
         baseUrl = "http://localhost:11434",
-        modelName = "llama3",
+        modelName = "qwen3:8b",
         type = AiEndpointType.LLM_SUMMARIZATION
     ),
     val recordingHotkey: String = "Ctrl+Shift+R",
