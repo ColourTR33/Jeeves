@@ -1,6 +1,7 @@
 package com.jeeves.desktop.data
 
 import com.jeeves.shared.ai.AppLogger
+import java.io.File
 import java.time.LocalDateTime
 
 data class CalendarEvent(
@@ -92,10 +93,13 @@ class CalendarService {
     // --- Windows: PowerShell + Outlook COM ---
 
     private fun getNextMeetingWindows(): CalendarEvent? {
-        // PowerShell script to query Outlook calendar via COM
-        val script = """
+        // Write PowerShell script to a temp file to avoid quoting issues
+        val scriptFile = File(System.getProperty("java.io.tmpdir"), "jeeves_calendar.ps1")
+        scriptFile.writeText("""
+            ${'$'}ErrorActionPreference = 'SilentlyContinue'
             try {
                 ${'$'}outlook = New-Object -ComObject Outlook.Application
+                if (-not ${'$'}outlook) { exit 0 }
                 ${'$'}namespace = ${'$'}outlook.GetNamespace("MAPI")
                 ${'$'}calendar = ${'$'}namespace.GetDefaultFolder(9)
                 ${'$'}now = Get-Date
@@ -116,12 +120,12 @@ class CalendarService {
                         Write-Output (${'$'}evt.Subject + "|ONGOING")
                     }
                 }
-            } catch {
-                # Outlook not available - silent fail
-            }
-        """.trimIndent()
+            } catch { }
+        """.trimIndent())
 
-        val process = ProcessBuilder("powershell", "-NoProfile", "-Command", script)
+        val process = ProcessBuilder(
+            "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptFile.absolutePath
+        )
             .redirectErrorStream(true)
             .start()
 

@@ -126,8 +126,8 @@ enum class AudioSource {
 data class AppSettings(
     val transcriptionEndpoint: AiEndpointConfig = AiEndpointConfig(
         name = "Local Whisper",
-        baseUrl = "http://localhost:8080",
-        modelName = "whisper-large-v3",
+        baseUrl = "http://localhost:8178",
+        modelName = "whisper-small",
         type = AiEndpointType.WHISPER_TRANSCRIPTION
     ),
     val summarizationEndpoint: AiEndpointConfig = AiEndpointConfig(
