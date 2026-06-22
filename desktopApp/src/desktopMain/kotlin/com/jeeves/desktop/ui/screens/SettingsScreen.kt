@@ -264,6 +264,58 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // System Audio Capture (for recording both sides of calls)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("System Audio Capture", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Capture system audio (call participants)")
+                        Text(
+                            "Records what comes out of your speakers alongside your mic, so both sides of calls are captured.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = settings.captureSystemAudio,
+                        onCheckedChange = {
+                            settings = settings.copy(captureSystemAudio = it)
+                            isSaved = false
+                        }
+                    )
+                }
+
+                if (settings.captureSystemAudio) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val loopbackAvailable = remember { appState.audioRecorder.let {
+                        com.jeeves.desktop.audio.SystemAudioCapture().isAvailable()
+                    }}
+                    if (loopbackAvailable) {
+                        Text(
+                            "✓ System audio device detected. Both sides of calls will be recorded.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Text(
+                            com.jeeves.desktop.audio.SystemAudioCapture().getSetupInstructions(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // Speaker Diarization settings
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {

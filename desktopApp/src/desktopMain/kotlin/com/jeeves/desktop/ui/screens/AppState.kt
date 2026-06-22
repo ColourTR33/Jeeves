@@ -11,9 +11,11 @@ import com.jeeves.desktop.data.ObsidianExportService
 import com.jeeves.desktop.data.RemindersExportService
 import com.jeeves.desktop.data.SearchService
 import com.jeeves.desktop.data.SpeakerNameService
+import com.jeeves.desktop.time.TimeReminderService
 import com.jeeves.shared.domain.RecordingsRepository
 import com.jeeves.shared.domain.SettingsRepository
 import com.jeeves.shared.recording.RecordingManager
+import com.jeeves.shared.time.TimeTrackingManager
 
 /**
  * Application state holder, provided via CompositionLocal.
@@ -31,7 +33,9 @@ data class AppState(
     val speakerNameService: SpeakerNameService,
     val emailExportService: EmailExportService,
     val obsidianExportService: ObsidianExportService,
-    val calendarService: CalendarService
+    val calendarService: CalendarService,
+    val timeManager: TimeTrackingManager,
+    val reminderService: TimeReminderService
 )
 
 val LocalAppState = compositionLocalOf<AppState> {

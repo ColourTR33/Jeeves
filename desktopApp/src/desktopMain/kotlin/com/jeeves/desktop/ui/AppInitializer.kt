@@ -45,6 +45,8 @@ class DesktopStreamingCallback(
             AudioSource.SPECIFIC_DEVICE -> settings.audioDeviceName
             AudioSource.DEFAULT_MICROPHONE -> ""
         }
+        // Configure system audio capture for recording both sides of calls
+        audioRecorder.captureSystemAudio = settings.captureSystemAudio
     }
 
     override fun onRecordingStarted(settings: AppSettings) {
@@ -86,6 +88,12 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
         val obsidianExportService = ObsidianExportService()
         val calendarService = CalendarService()
 
+        val timeRepo = com.jeeves.desktop.data.FileTimeTrackingRepository()
+        val timeManager = com.jeeves.shared.time.TimeTrackingManager(timeRepo, scope)
+        timeManager.initialize()
+        val reminderService = com.jeeves.desktop.time.TimeReminderService(timeManager, scope)
+        reminderService.start()
+
         val recordingManager = RecordingManager(
             audioRecorder = audioRecorder,
             whisperClient = whisperClient,
@@ -109,7 +117,9 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             speakerNameService = speakerNameService,
             emailExportService = emailExportService,
             obsidianExportService = obsidianExportService,
-            calendarService = calendarService
+            calendarService = calendarService,
+            timeManager = timeManager,
+            reminderService = reminderService
         )
     }
 

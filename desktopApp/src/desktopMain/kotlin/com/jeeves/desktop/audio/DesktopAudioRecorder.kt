@@ -57,6 +57,15 @@ class DesktopAudioRecorder : AudioRecorder {
     var deviceName: String = ""
 
     /**
+     * When true, also captures system audio (loopback) alongside the microphone
+     * and mixes both into the final recording. This allows capturing both sides
+     * of a call (your voice via mic + other participants via system audio).
+     */
+    var captureSystemAudio: Boolean = false
+
+    private val systemCapture = SystemAudioCapture()
+
+    /**
      * Returns a list of available audio input devices that support 16kHz 16-bit capture.
      * Useful for letting the user select a specific input (e.g., BlackHole for system audio).
      */
@@ -117,6 +126,11 @@ class DesktopAudioRecorder : AudioRecorder {
 
             _isRecording.value = true
 
+            // Start system audio capture if enabled
+            if (captureSystemAudio) {
+                systemCapture.startCapture()
+            }
+
             recordingThread = Thread({
                 val buffer = ByteArray(4096)
                 while (_isRecording.value) {
@@ -154,8 +168,18 @@ class DesktopAudioRecorder : AudioRecorder {
             targetLine?.close()
             targetLine = null
 
+            // Get microphone audio
+            var audioData = synchronized(audioBuffer) { audioBuffer.toByteArray() }
+
+            // Mix in system audio if it was being captured
+            if (captureSystemAudio) {
+                val systemAudioData = systemCapture.stopCapture()
+                if (systemAudioData.isNotEmpty()) {
+                    audioData = systemCapture.mixAudio(audioData, systemAudioData)
+                }
+            }
+
             // Write WAV file using the session format
-            val audioData = synchronized(audioBuffer) { audioBuffer.toByteArray() }
             val audioInputStream = AudioInputStream(
                 audioData.inputStream(),
                 format,

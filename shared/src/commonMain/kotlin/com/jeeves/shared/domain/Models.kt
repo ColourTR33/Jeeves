@@ -148,5 +148,6 @@ data class AppSettings(
     val customVocabulary: String = "",  // Comma-separated custom terms
     val obsidianVaultPath: String = "",
     val audioSource: AudioSource = AudioSource.DEFAULT_MICROPHONE,
-    val audioDeviceName: String = ""  // Name of the specific audio input device (e.g., "BlackHole 2ch")
+    val audioDeviceName: String = "",  // Name of the specific audio input device (e.g., "BlackHole 2ch")
+    val captureSystemAudio: Boolean = false  // When true, also records system audio (other people on calls)
 )
