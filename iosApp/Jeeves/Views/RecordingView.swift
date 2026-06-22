@@ -5,7 +5,7 @@ struct RecordingView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 32) {
+            VStack(spacing: 24) {
                 Spacer()
 
                 // Status text
@@ -13,18 +13,28 @@ struct RecordingView: View {
                     .font(.title)
                     .foregroundColor(statusColor)
 
-                // Timer
+                // Timer + level meter
                 if appState.recordingState == .recording || appState.recordingState == .paused {
                     Text(formatDuration(appState.elapsedSeconds))
                         .font(.system(size: 56, weight: .light, design: .monospaced))
 
-                    // Audio level meter
                     AudioLevelMeterView(level: appState.audioRecorder.audioLevel)
                         .frame(height: 28)
                         .padding(.horizontal, 48)
                 }
 
-                // Progress
+                // Live transcript (streaming)
+                if appState.settings.streamingEnabled &&
+                   (appState.recordingState == .recording || appState.recordingState == .paused) {
+                    LiveTranscriptView(
+                        transcript: appState.liveTranscript,
+                        isTranscribing: appState.isTranscribing,
+                        isRecording: appState.recordingState == .recording
+                    )
+                    .padding(.horizontal)
+                }
+
+                // Processing progress
                 if let progress = appState.progress {
                     ProgressView()
                         .padding(.bottom, 4)
@@ -71,6 +81,27 @@ struct RecordingView: View {
                     }
                 }
 
+                // Bookmark button (during recording)
+                if appState.recordingState == .recording || appState.recordingState == .paused {
+                    Button(action: { appState.addBookmark() }) {
+                        Label("Bookmark", systemImage: "star.fill")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                }
+
+                // Meeting template picker (when idle)
+                if appState.recordingState == .idle {
+                    Picker("Meeting Type", selection: $appState.selectedTemplate) {
+                        ForEach(MeetingTemplate.allCases, id: \.self) { template in
+                            Text(template.rawValue).tag(template)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .padding(.horizontal)
+                }
+
                 Spacer()
 
                 // Error display
@@ -78,13 +109,9 @@ struct RecordingView: View {
                     HStack {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.red)
-                        Text(error)
-                            .font(.caption)
+                        Text(error).font(.caption)
                         Spacer()
-                        Button("Dismiss") {
-                            appState.error = nil
-                        }
-                        .font(.caption)
+                        Button("Dismiss") { appState.error = nil }.font(.caption)
                     }
                     .padding()
                     .background(Color.red.opacity(0.1))
@@ -117,9 +144,45 @@ struct RecordingView: View {
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
         let secs = seconds % 60
-        if hours > 0 {
-            return String(format: "%02d:%02d:%02d", hours, minutes, secs)
-        }
+        if hours > 0 { return String(format: "%02d:%02d:%02d", hours, minutes, secs) }
         return String(format: "%02d:%02d", minutes, secs)
+    }
+}
+
+// MARK: - Live Transcript View
+
+private struct LiveTranscriptView: View {
+    let transcript: String
+    let isTranscribing: Bool
+    let isRecording: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if transcript.isEmpty && isRecording {
+                Text("Listening for speech...")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else if !transcript.isEmpty {
+                ScrollView {
+                    Text(transcript)
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 120)
+            }
+
+            if isTranscribing {
+                HStack(spacing: 4) {
+                    ProgressView().scaleEffect(0.6)
+                    Text("Transcribing...")
+                        .font(.caption2)
+                        .foregroundColor(.accentColor)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
     }
 }

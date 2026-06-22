@@ -10,6 +10,7 @@ class OllamaAPIClient {
         1. A concise summary (2-3 paragraphs)
         2. Key points discussed (bullet points)
         3. Action items identified (bullet points)
+        4. Questions raised or unanswered (bullet points)
 
         Format your response as:
         SUMMARY:
@@ -22,6 +23,10 @@ class OllamaAPIClient {
         ACTION ITEMS:
         - [action 1]
         - [action 2]
+
+        QUESTIONS:
+        - [question 1]
+        - [question 2]
 
         TRANSCRIPTION:
         \(transcription)
@@ -85,15 +90,18 @@ class OllamaAPIClient {
     private func parseSummaryResponse(_ response: String, model: String) -> SummaryData {
         let summarySection = extractSection(from: response, start: "SUMMARY:", end: "KEY POINTS:")
         let keyPointsSection = extractSection(from: response, start: "KEY POINTS:", end: "ACTION ITEMS:")
-        let actionItemsSection = extractSection(from: response, start: "ACTION ITEMS:", end: nil)
+        let actionItemsSection = extractSection(from: response, start: "ACTION ITEMS:", end: "QUESTIONS:")
+        let questionsSection = extractSection(from: response, start: "QUESTIONS:", end: nil)
 
         let keyPoints = parseBulletPoints(keyPointsSection)
         let actionItems = parseBulletPoints(actionItemsSection)
+        let questions = parseBulletPoints(questionsSection)
 
         return SummaryData(
             summary: summarySection.isEmpty ? response : summarySection,
             keyPoints: keyPoints,
             actionItems: actionItems,
+            questions: questions,
             modelUsed: model
         )
     }
