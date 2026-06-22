@@ -5,7 +5,7 @@ Runs on CPU by default. Automatically chunks long audio files
 to avoid timeout issues.
 
 Usage:
-    pip install faster-whisper fastapi uvicorn python-multipart pydub
+    pip install faster-whisper fastapi uvicorn python-multipart
     python server.py
 """
 import io
@@ -41,13 +41,15 @@ def get_model():
 
 
 def get_audio_duration(file_path: str) -> float:
-    """Get duration of an audio file in seconds using pydub."""
+    """Get duration of a WAV audio file in seconds using the wave module."""
     try:
-        from pydub import AudioSegment
-        audio = AudioSegment.from_file(file_path)
-        return len(audio) / 1000.0
+        import wave
+        with wave.open(file_path, 'rb') as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            return frames / float(rate)
     except Exception as e:
-        print(f"Could not determine audio duration: {e}")
+        print(f"Could not determine audio duration via wave module: {e}")
         # Fallback: estimate from file size (16kHz, 16-bit mono WAV ~ 32KB/sec)
         file_size = os.path.getsize(file_path)
         return file_size / 32000.0
@@ -55,28 +57,43 @@ def get_audio_duration(file_path: str) -> float:
 
 def split_audio_file(file_path: str, chunk_seconds: int) -> list:
     """
-    Split an audio file into chunks of chunk_seconds duration.
-    Returns a list of temp file paths for each chunk.
+    Split a WAV audio file into chunks of chunk_seconds duration.
+    Returns a list of (temp_file_path, time_offset_seconds) tuples.
+    Uses the standard library wave module (no pydub dependency).
     """
-    from pydub import AudioSegment
+    import wave
+    import struct
 
-    audio = AudioSegment.from_file(file_path)
-    duration_ms = len(audio)
-    chunk_ms = chunk_seconds * 1000
-    chunk_paths = []
+    with wave.open(file_path, 'rb') as wf:
+        n_channels = wf.getnchannels()
+        sample_width = wf.getsampwidth()
+        frame_rate = wf.getframerate()
+        n_frames = wf.getnframes()
+        duration_seconds = n_frames / float(frame_rate)
 
-    num_chunks = math.ceil(duration_ms / chunk_ms)
-    print(f"Splitting audio ({duration_ms/1000:.1f}s) into {num_chunks} chunks of {chunk_seconds}s each")
+        frames_per_chunk = chunk_seconds * frame_rate
+        num_chunks = math.ceil(n_frames / frames_per_chunk)
+        print(f"Splitting audio ({duration_seconds:.1f}s) into {num_chunks} chunks of {chunk_seconds}s each")
 
-    for i in range(num_chunks):
-        start_ms = i * chunk_ms
-        end_ms = min((i + 1) * chunk_ms, duration_ms)
-        chunk = audio[start_ms:end_ms]
+        chunk_paths = []
+        for i in range(num_chunks):
+            start_frame = i * frames_per_chunk
+            end_frame = min((i + 1) * frames_per_chunk, n_frames)
+            chunk_frames = end_frame - start_frame
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            chunk.export(tmp.name, format="wav")
-            chunk_paths.append((tmp.name, start_ms / 1000.0))
-            print(f"  Chunk {i+1}/{num_chunks}: {start_ms/1000:.1f}s - {end_ms/1000:.1f}s")
+            wf.setpos(start_frame)
+            audio_data = wf.readframes(chunk_frames)
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                with wave.open(tmp.name, 'wb') as chunk_wf:
+                    chunk_wf.setnchannels(n_channels)
+                    chunk_wf.setsampwidth(sample_width)
+                    chunk_wf.setframerate(frame_rate)
+                    chunk_wf.writeframes(audio_data)
+
+                time_offset = start_frame / float(frame_rate)
+                chunk_paths.append((tmp.name, time_offset))
+                print(f"  Chunk {i+1}/{num_chunks}: {time_offset:.1f}s - {end_frame/float(frame_rate):.1f}s")
 
     return chunk_paths
 
