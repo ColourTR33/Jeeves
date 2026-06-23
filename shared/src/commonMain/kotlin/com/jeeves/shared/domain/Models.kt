@@ -134,6 +134,17 @@ enum class AudioSource {
 }
 
 /**
+ * Transcription provider selection.
+ * LOCAL: Uses local Whisper server (faster-whisper, whisper.cpp)
+ * GROQ_CLOUD: Uses Groq's cloud Whisper API (whisper-large-v3, much more accurate)
+ */
+@Serializable
+enum class TranscriptionProvider {
+    LOCAL,
+    GROQ_CLOUD
+}
+
+/**
  * Application settings.
  */
 @Serializable
@@ -150,6 +161,9 @@ data class AppSettings(
         modelName = "qwen3:8b",
         type = AiEndpointType.LLM_SUMMARIZATION
     ),
+    val transcriptionProvider: TranscriptionProvider = TranscriptionProvider.LOCAL,
+    val groqApiKey: String = "",  // Groq cloud API key for whisper-large-v3
+    val groqModel: String = "whisper-large-v3-turbo",  // whisper-large-v3, whisper-large-v3-turbo, distil-whisper-large-v3-en
     val recordingHotkey: String = "Ctrl+Shift+R",
     val audioFormat: String = "wav",
     val sampleRate: Int = 16000,

@@ -35,7 +35,8 @@ data class AppState(
     val obsidianExportService: ObsidianExportService,
     val calendarService: CalendarService,
     val timeManager: TimeTrackingManager,
-    val reminderService: TimeReminderService
+    val reminderService: TimeReminderService,
+    val callDetector: com.jeeves.desktop.audio.CallDetector? = null
 )
 
 val LocalAppState = compositionLocalOf<AppState> {

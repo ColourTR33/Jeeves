@@ -105,8 +105,12 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             settingsRepository = settingsRepository,
             recordingsRepository = recordingsRepository,
             scope = scope,
-            streamingCallback = streamingCallback
+            streamingCallback = streamingCallback,
+            groqWhisperClient = com.jeeves.shared.ai.GroqWhisperClient(httpClient)
         )
+
+        val callDetector = com.jeeves.desktop.audio.CallDetector(scope)
+        callDetector.start()
 
         AppState(
             recordingManager = recordingManager,
@@ -123,7 +127,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             obsidianExportService = obsidianExportService,
             calendarService = calendarService,
             timeManager = timeManager,
-            reminderService = reminderService
+            reminderService = reminderService,
+            callDetector = callDetector
         )
     }
 

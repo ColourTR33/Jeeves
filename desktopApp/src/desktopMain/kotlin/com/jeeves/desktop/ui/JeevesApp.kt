@@ -65,12 +65,17 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
     val isRecordingActive = recordingState == com.jeeves.shared.domain.RecordingState.RECORDING ||
         recordingState == com.jeeves.shared.domain.RecordingState.PAUSED
 
+    // Call detection
+    val callDetected by appState.callDetector?.callDetected?.collectAsState() ?: remember { mutableStateOf(false) }
+    val detectedApp by appState.callDetector?.detectedApp?.collectAsState() ?: remember { mutableStateOf(null) }
+
     val bannerMessage = when {
         isRecordingActive -> {
             val timeStr = formatElapsedTime(elapsedSeconds)
             val stateLabel = if (recordingState == com.jeeves.shared.domain.RecordingState.PAUSED) "Paused" else "Recording"
             "\uD83D\uDD34 $stateLabel — $timeStr"
         }
+        callDetected && !isRecordingActive -> "\uD83D\uDCDE $detectedApp detected — Start recording?"
         error != null -> error
         activeItem != null -> {
             val statusLabel = if (activeItem.status == com.jeeves.shared.recording.ProcessingStatus.TRANSCRIBING) "Transcribing" else "Summarising"
@@ -83,6 +88,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
     }
     val bannerType = when {
         isRecordingActive -> NotificationType.INFO
+        callDetected && !isRecordingActive -> NotificationType.INFO
         error != null -> NotificationType.ERROR
         failedItem != null && activeItem == null -> NotificationType.ERROR
         activeItem != null || progress != null -> NotificationType.PROGRESS
@@ -121,6 +127,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
                             type = bannerType,
                             onDismiss = when {
                                 isRecordingActive -> null
+                                callDetected && !isRecordingActive -> {{ appState.callDetector?.dismiss() }}
                                 error != null -> {{ appState.recordingManager.clearError() }}
                                 failedItem != null && activeItem == null -> {{ appState.recordingManager.processingQueue.clearCompleted() }}
                                 else -> null

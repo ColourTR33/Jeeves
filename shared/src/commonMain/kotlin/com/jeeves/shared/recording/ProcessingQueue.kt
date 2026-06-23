@@ -1,6 +1,7 @@
 package com.jeeves.shared.recording
 
 import com.jeeves.shared.ai.AppLogger
+import com.jeeves.shared.ai.GroqWhisperClient
 import com.jeeves.shared.ai.OllamaClient
 import com.jeeves.shared.ai.WhisperClient
 import com.jeeves.shared.ai.formatWithSpeakers
@@ -53,7 +54,8 @@ class ProcessingQueue(
     private val ollamaClient: OllamaClient,
     private val settingsRepository: SettingsRepository,
     private val recordingsRepository: RecordingsRepository,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val groqClient: GroqWhisperClient? = null
 ) {
     private val _queue = MutableStateFlow<List<ProcessingItem>>(emptyList())
     val queue: StateFlow<List<ProcessingItem>> = _queue.asStateFlow()
@@ -153,6 +155,26 @@ class ProcessingQueue(
                     language = "en",
                     durationMs = recording.durationMs
                 )
+            } else if (settings.transcriptionProvider == TranscriptionProvider.GROQ_CLOUD &&
+                settings.groqApiKey.isNotBlank() && groqClient != null) {
+                // Use Groq cloud for better accuracy
+                AppLogger.info("ProcessingQueue", "Using Groq cloud transcription (${settings.groqModel})")
+                try {
+                    groqClient.transcribe(
+                        audioFilePath = recording.filePath,
+                        apiKey = settings.groqApiKey,
+                        model = settings.groqModel
+                    ).copy(recordingId = recording.id)
+                } catch (e: Exception) {
+                    // Fall back to local on Groq failure
+                    AppLogger.warn("ProcessingQueue", "Groq failed (${e.message}), falling back to local Whisper")
+                    whisperClient.transcribe(
+                        audioFilePath = recording.filePath,
+                        config = settings.transcriptionEndpoint,
+                        diarizationEnabled = settings.diarizationEnabled,
+                        diarizationMode = settings.diarizationMode
+                    ).copy(recordingId = recording.id)
+                }
             } else {
                 whisperClient.transcribe(
                     audioFilePath = recording.filePath,

@@ -24,17 +24,116 @@ class OllamaClient(
         description: String,
         attachmentCount: Int
     ): SummaryResult {
+        val wordCount = transcription.text.split("\\s+".toRegex()).size
+
+        // For long transcripts (>4000 words), use chunked summarization
+        return if (wordCount > 4000) {
+            summarizeChunked(transcription, config, description, attachmentCount)
+        } else {
+            summarizeDirect(transcription, config, description, attachmentCount)
+        }
+    }
+
+    private suspend fun summarizeDirect(
+        transcription: TranscriptionResult,
+        config: AiEndpointConfig,
+        description: String,
+        attachmentCount: Int
+    ): SummaryResult {
         val prompt = buildSummarizationPrompt(transcription, description, attachmentCount)
 
-        // Try Ollama native API first
         val response = try {
             callOllamaApi(config, prompt)
         } catch (e: Exception) {
-            // Fall back to OpenAI-compatible endpoint
             callOpenAiCompatibleApi(config, prompt)
         }
 
         return parseSummaryResponse(transcription.recordingId, response, config.modelName)
+    }
+
+    /**
+     * Chunked summarization for long transcripts.
+     * 1. Split transcript into ~3000-word chunks
+     * 2. Summarize each chunk independently (key points + actions only)
+     * 3. Combine chunk summaries into a final pass that produces the full structured output
+     */
+    private suspend fun summarizeChunked(
+        transcription: TranscriptionResult,
+        config: AiEndpointConfig,
+        description: String,
+        attachmentCount: Int
+    ): SummaryResult {
+        val words = transcription.text.split("\\s+".toRegex())
+        val chunkSize = 3000
+        val chunks = words.chunked(chunkSize).map { it.joinToString(" ") }
+
+        AppLogger.info("OllamaClient", "Chunked summarization: ${words.size} words -> ${chunks.size} chunks")
+
+        // Phase 1: Summarize each chunk
+        val chunkSummaries = mutableListOf<String>()
+        for ((index, chunk) in chunks.withIndex()) {
+            AppLogger.info("OllamaClient", "Summarizing chunk ${index + 1}/${chunks.size}")
+            val chunkPrompt = """
+                |Summarize this section of a meeting transcription (part ${index + 1} of ${chunks.size}).
+                |Provide key points and any action items as bullet points. Be concise.
+                |
+                |TRANSCRIPTION SECTION:
+                |$chunk
+            """.trimMargin()
+
+            val chunkResponse = try {
+                callOllamaApi(config, chunkPrompt)
+            } catch (e: Exception) {
+                callOpenAiCompatibleApi(config, chunkPrompt)
+            }
+            chunkSummaries.add("--- Part ${index + 1} ---\n$chunkResponse")
+        }
+
+        // Phase 2: Final synthesis pass
+        val combinedChunkText = chunkSummaries.joinToString("\n\n")
+        val contextSection = if (description.isNotBlank()) "\nMeeting context/agenda: $description\n" else ""
+        val attachmentNote = if (attachmentCount > 0) "\n$attachmentCount screenshot(s) were captured.\n" else ""
+
+        val finalPrompt = """
+            |Below are summaries of different parts of a meeting. Combine them into a single cohesive meeting summary.
+            |$contextSection$attachmentNote
+            |Provide:
+            |1. A concise summary (2-3 paragraphs)
+            |2. Key points discussed (bullet points)
+            |3. Action items identified (bullet points)
+            |4. Questions raised (bullet points)
+            |5. At least 2 hashtag tags for categorizing this meeting (e.g., #project-name #sprint-review)
+            |
+            |Format your response as:
+            |SUMMARY:
+            |[your summary here]
+            |
+            |KEY POINTS:
+            |- [point 1]
+            |...
+            |
+            |ACTION ITEMS:
+            |- [action 1]
+            |...
+            |
+            |QUESTIONS:
+            |- [question 1]
+            |...
+            |
+            |TAGS:
+            |#tag1 #tag2
+            |
+            |SECTION SUMMARIES:
+            |$combinedChunkText
+        """.trimMargin()
+
+        val finalResponse = try {
+            callOllamaApi(config, finalPrompt)
+        } catch (e: Exception) {
+            callOpenAiCompatibleApi(config, finalPrompt)
+        }
+
+        return parseSummaryResponse(transcription.recordingId, finalResponse, config.modelName)
     }
 
     private suspend fun callOllamaApi(config: AiEndpointConfig, prompt: String): String {
