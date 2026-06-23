@@ -35,7 +35,12 @@ interface TranscriptionService {
  * Summarization service that creates summaries from transcriptions.
  */
 interface SummarizationService {
-    suspend fun summarize(transcription: TranscriptionResult, config: AiEndpointConfig): SummaryResult
+    suspend fun summarize(
+        transcription: TranscriptionResult,
+        config: AiEndpointConfig,
+        description: String = "",
+        attachmentCount: Int = 0
+    ): SummaryResult
 }
 
 /**

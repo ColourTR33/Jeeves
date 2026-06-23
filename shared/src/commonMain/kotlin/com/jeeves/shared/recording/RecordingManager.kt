@@ -71,14 +71,20 @@ class RecordingManager(
 
     private var recordingStartTime: Long = 0
 
+    /** Pending metadata set by the UI during recording, consumed on stop. */
+    var pendingTitle: String = ""
+    var pendingDescription: String = ""
+    var pendingAttachments: List<Attachment> = emptyList()
+
     /**
      * Toggle recording on/off. Called by hotkey or button press.
+     * Uses pending metadata fields when stopping.
      */
     fun toggleRecording() {
         scope.launch {
             when (_state.value) {
                 RecordingState.IDLE -> startRecording()
-                RecordingState.RECORDING -> stopRecording()
+                RecordingState.RECORDING -> stopRecording(pendingTitle, pendingDescription, pendingAttachments)
                 RecordingState.PAUSED -> resumeRecording()
                 RecordingState.PROCESSING -> { /* Ignore while processing */ }
             }
@@ -113,8 +119,13 @@ class RecordingManager(
     /**
      * Stop recording and enqueue for async transcription/summarization.
      * Returns immediately to IDLE so the user can start another recording.
+     * Accepts optional metadata (title, description, attachments) set during recording.
      */
-    suspend fun stopRecording() {
+    suspend fun stopRecording(
+        title: String = "Untitled Meeting",
+        description: String = "",
+        attachments: List<Attachment> = emptyList()
+    ) {
         try {
             // Capture streaming transcript before stopping
             val streamingText = streamingCallback?.getStreamingTranscript()
@@ -129,7 +140,10 @@ class RecordingManager(
                 id = generateId(),
                 filePath = filePath,
                 durationMs = duration,
-                createdAt = currentTimeMillis()
+                createdAt = currentTimeMillis(),
+                title = title.ifBlank { "Untitled Meeting" },
+                description = description,
+                attachments = attachments
             )
 
             _currentRecording.value = recording

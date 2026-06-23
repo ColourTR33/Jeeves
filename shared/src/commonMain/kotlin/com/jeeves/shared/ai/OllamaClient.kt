@@ -20,9 +20,11 @@ class OllamaClient(
 
     override suspend fun summarize(
         transcription: TranscriptionResult,
-        config: AiEndpointConfig
+        config: AiEndpointConfig,
+        description: String,
+        attachmentCount: Int
     ): SummaryResult {
-        val prompt = buildSummarizationPrompt(transcription)
+        val prompt = buildSummarizationPrompt(transcription, description, attachmentCount)
 
         // Try Ollama native API first
         val response = try {
@@ -71,7 +73,11 @@ class OllamaClient(
         return chatResponse.choices.firstOrNull()?.message?.content ?: ""
     }
 
-    private fun buildSummarizationPrompt(transcription: TranscriptionResult): String {
+    private fun buildSummarizationPrompt(
+        transcription: TranscriptionResult,
+        description: String = "",
+        attachmentCount: Int = 0
+    ): String {
         val hasSpeakers = hasSpeakerLabels(transcription.segments)
 
         val formattedText = if (hasSpeakers) {
@@ -81,7 +87,19 @@ class OllamaClient(
         }
 
         val speakerInstruction = if (hasSpeakers) {
-            "\n|The transcription includes speaker labels. When summarising, attribute key points and action items to the speaker who raised them where possible.\n|"
+            "\nThe transcription includes speaker labels. When summarising, attribute key points and action items to the speaker who raised them where possible.\n"
+        } else {
+            ""
+        }
+
+        val contextSection = if (description.isNotBlank()) {
+            "\nMEETING CONTEXT/AGENDA:\n$description\n"
+        } else {
+            ""
+        }
+
+        val attachmentNote = if (attachmentCount > 0) {
+            "\nNote: $attachmentCount screenshot(s) were captured during this meeting for reference.\n"
         } else {
             ""
         }
@@ -92,6 +110,7 @@ class OllamaClient(
             |2. Key points discussed (bullet points)
             |3. Action items identified (bullet points)
             |4. Questions raised during the meeting (bullet points)
+            |5. At least 2 hashtag tags for categorizing this meeting (e.g., #project-name #sprint-review #design-discussion)
             |
             |Format your response as:
             |SUMMARY:
@@ -111,7 +130,10 @@ class OllamaClient(
             |- [question 1]
             |- [question 2]
             |...
-            |$speakerInstruction
+            |
+            |TAGS:
+            |#tag1 #tag2 #tag3
+            |$speakerInstruction$contextSection$attachmentNote
             |TRANSCRIPTION:
             |$formattedText
         """.trimMargin()
@@ -125,11 +147,13 @@ class OllamaClient(
         val summarySection = extractSection(response, "SUMMARY:", "KEY POINTS:")
         val keyPointsSection = extractSection(response, "KEY POINTS:", "ACTION ITEMS:")
         val actionItemsSection = extractSection(response, "ACTION ITEMS:", "QUESTIONS:")
-        val questionsSection = extractSection(response, "QUESTIONS:", null)
+        val questionsSection = extractSection(response, "QUESTIONS:", "TAGS:")
+        val tagsSection = extractSection(response, "TAGS:", null)
 
         val keyPoints = parseBulletPoints(keyPointsSection)
         val actionItems = parseBulletPoints(actionItemsSection)
         val questions = parseBulletPoints(questionsSection)
+        val tags = parseHashtags(tagsSection)
 
         return SummaryResult(
             recordingId = recordingId,
@@ -137,6 +161,7 @@ class OllamaClient(
             keyPoints = keyPoints,
             actionItems = actionItems,
             questions = questions,
+            tags = tags,
             modelUsed = modelName
         )
     }
@@ -162,6 +187,11 @@ class OllamaClient(
             .filter { it.startsWith("-") || it.startsWith("•") || it.startsWith("*") }
             .map { it.removePrefix("-").removePrefix("•").removePrefix("*").trim() }
             .filter { it.isNotBlank() }
+    }
+
+    private fun parseHashtags(text: String): List<String> {
+        val regex = Regex("#[\\w-]+")
+        return regex.findAll(text).map { it.value }.toList().distinct()
     }
 }
 

@@ -177,10 +177,19 @@ class ProcessingQueue(
 
             val summary = ollamaClient.summarize(
                 transcription = transcriptionForSummary,
-                config = settings.summarizationEndpoint
+                config = settings.summarizationEndpoint,
+                description = recording.description,
+                attachmentCount = recording.attachments.size
             )
 
             recordingsRepository.saveSummary(summary)
+
+            // Merge auto-generated tags back into the recording
+            if (summary.tags.isNotEmpty()) {
+                val updatedTags = (recording.tags + summary.tags).distinct()
+                recordingsRepository.updateRecording(recording.copy(tags = updatedTags))
+            }
+
             AppLogger.info("ProcessingQueue", "Summarization complete for ${recording.id}")
 
             updateStatus(item.recordingId, ProcessingStatus.COMPLETE)

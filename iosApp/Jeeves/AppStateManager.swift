@@ -22,6 +22,11 @@ class AppStateManager: ObservableObject {
     // Meeting template for current session
     @Published var selectedTemplate: MeetingTemplate = .general
 
+    // Meeting metadata (set during recording)
+    @Published var pendingTitle: String = ""
+    @Published var pendingDescription: String = ""
+    @Published var pendingAttachments: [AttachmentItem] = []
+
     let audioPlayer = iOSAudioPlayer()
     let audioRecorder = iOSAudioRecorder()
 
@@ -60,6 +65,9 @@ class AppStateManager: ObservableObject {
             recordingStartTime = Date()
             currentBookmarks = []
             liveTranscript = ""
+            pendingTitle = ""
+            pendingDescription = ""
+            pendingAttachments = []
             startTimer()
             error = nil
 
@@ -102,9 +110,11 @@ class AppStateManager: ObservableObject {
             filePath: path,
             durationMs: duration,
             createdAt: Date(),
-            title: "Meeting \(recordings.count + 1)",
+            title: pendingTitle.isEmpty ? "Meeting \(recordings.count + 1)" : pendingTitle,
+            description: pendingDescription,
             meetingTemplate: selectedTemplate,
-            bookmarks: currentBookmarks
+            bookmarks: currentBookmarks,
+            attachments: pendingAttachments
         )
 
         recordings.insert(recording, at: 0)
@@ -489,10 +499,19 @@ struct RecordingItem: Identifiable, Codable {
     let durationMs: Int
     let createdAt: Date
     var title: String
+    var description: String = ""
     var tags: [String] = []
     var folder: String = ""
     var meetingTemplate: MeetingTemplate = .general
     var bookmarks: [Bookmark] = []
+    var attachments: [AttachmentItem] = []
+}
+
+struct AttachmentItem: Identifiable, Codable {
+    let id: String
+    let filePath: String
+    let timestampMs: Int
+    var caption: String = ""
 }
 
 struct SettingsData: Codable {

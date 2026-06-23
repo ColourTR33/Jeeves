@@ -34,10 +34,23 @@ data class Recording(
     val durationMs: Long,
     val createdAt: Long,
     val title: String = "Untitled Meeting",
+    val description: String = "",  // agenda, context, attendee info
     val template: MeetingTemplate = MeetingTemplate.GENERAL,
     val tags: List<String> = emptyList(),
     val folder: String = "",
-    val highlights: List<Long> = emptyList()  // Timestamp ms values of bookmarked moments
+    val highlights: List<Long> = emptyList(),  // Timestamp ms values of bookmarked moments
+    val attachments: List<Attachment> = emptyList()  // Screenshots captured during recording
+)
+
+/**
+ * An attachment (screenshot/image) captured during a recording session.
+ */
+@Serializable
+data class Attachment(
+    val id: String,
+    val filePath: String,       // path to saved image file
+    val timestampMs: Long,      // ms into recording when captured
+    val caption: String = ""    // optional user annotation
 )
 
 /**
@@ -74,6 +87,7 @@ data class SummaryResult(
     val keyPoints: List<String> = emptyList(),
     val actionItems: List<String> = emptyList(),
     val questions: List<String> = emptyList(),
+    val tags: List<String> = emptyList(),  // Auto-generated hashtag tags for organization
     val modelUsed: String = ""
 )
 

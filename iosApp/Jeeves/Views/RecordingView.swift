@@ -34,6 +34,37 @@ struct RecordingView: View {
                     .padding(.horizontal)
                 }
 
+                // Meeting metadata fields (during recording)
+                if appState.recordingState == .recording || appState.recordingState == .paused {
+                    VStack(spacing: 8) {
+                        TextField("Meeting Title", text: $appState.pendingTitle)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.body)
+
+                        TextField("Description / Agenda (optional)", text: $appState.pendingDescription, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption)
+                            .lineLimit(2...4)
+
+                        HStack {
+                            Button(action: { captureScreenshot() }) {
+                                Label("Screenshot", systemImage: "camera.fill")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(.blue)
+
+                            if !appState.pendingAttachments.isEmpty {
+                                Text("\(appState.pendingAttachments.count) screenshot(s)")
+                                    .font(.caption2)
+                                    .foregroundColor(.blue)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+
                 // Processing progress
                 if let progress = appState.progress {
                     ProgressView()
@@ -146,6 +177,33 @@ struct RecordingView: View {
         let secs = seconds % 60
         if hours > 0 { return String(format: "%02d:%02d:%02d", hours, minutes, secs) }
         return String(format: "%02d:%02d", minutes, secs)
+    }
+
+    private func captureScreenshot() {
+        // On iOS, capture what's on screen using UIGraphicsImageRenderer
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else { return }
+
+        let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
+        let image = renderer.image { ctx in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+        }
+
+        // Save to documents
+        let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let screenshotsDir = documentsDir.appendingPathComponent("recordings/screenshots")
+        try? FileManager.default.createDirectory(at: screenshotsDir, withIntermediateDirectories: true)
+
+        let id = UUID().uuidString
+        let fileName = "screenshot_\(Int(Date().timeIntervalSince1970 * 1000)).png"
+        let filePath = screenshotsDir.appendingPathComponent(fileName)
+
+        if let data = image.pngData() {
+            try? data.write(to: filePath)
+            let timestampMs = appState.elapsedSeconds * 1000
+            let attachment = AttachmentItem(id: id, filePath: filePath.path, timestampMs: timestampMs)
+            appState.pendingAttachments.append(attachment)
+        }
     }
 }
 

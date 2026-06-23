@@ -54,6 +54,11 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
     // Timer display
     var elapsedSeconds by remember { mutableStateOf(0L) }
 
+    // Meeting metadata (editable during recording)
+    var meetingTitle by remember { mutableStateOf("") }
+    var meetingDescription by remember { mutableStateOf("") }
+    var attachments by remember { mutableStateOf(listOf<com.jeeves.shared.domain.Attachment>()) }
+
     // Read settings to check if streaming is enabled
     var streamingEnabled by remember { mutableStateOf(true) }
     var audioSourceLabel by remember { mutableStateOf("🎤 Default Microphone") }
@@ -68,7 +73,13 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
 
     LaunchedEffect(recordingState) {
         if (recordingState == RecordingState.RECORDING) {
-            elapsedSeconds = 0
+            // Reset metadata for new recording
+            meetingTitle = ""
+            meetingDescription = ""
+            attachments = emptyList()
+            appState.recordingManager.pendingTitle = ""
+            appState.recordingManager.pendingDescription = ""
+            appState.recordingManager.pendingAttachments = emptyList()
             // Refresh streaming setting and audio source at start of each recording
             val settings = appState.settingsRepository.getSettings()
             streamingEnabled = settings.streamingEnabled
@@ -76,6 +87,8 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                 AudioSource.DEFAULT_MICROPHONE -> "🎤 Default Microphone"
                 AudioSource.SPECIFIC_DEVICE -> "🔊 ${settings.audioDeviceName.ifEmpty { "Unknown Device" }}"
             }
+            // Timer — runs here for screenshot timestamp reference
+            elapsedSeconds = 0
             while (isActive && recordingState == RecordingState.RECORDING) {
                 delay(1000)
                 elapsedSeconds++
@@ -118,15 +131,6 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
         Spacer(modifier = Modifier.height(16.dp))
 
         // Timer
-        if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.PAUSED) {
-            Text(
-                text = formatDuration(elapsedSeconds),
-                fontSize = 48.sp,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
         // Audio level meter (shown during recording or paused)
         if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.PAUSED) {
             AudioLevelMeter(
@@ -142,6 +146,75 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
         if (streamingEnabled && (recordingState == RecordingState.RECORDING ||
                     recordingState == RecordingState.PAUSED ||
                     recordingState == RecordingState.PROCESSING)) {
+
+            // Meeting metadata fields (during recording)
+            if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.PAUSED) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(0.8f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        OutlinedTextField(
+                            value = meetingTitle,
+                            onValueChange = {
+                                meetingTitle = it
+                                appState.recordingManager.pendingTitle = it
+                            },
+                            label = { Text("Meeting Title") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = meetingDescription,
+                            onValueChange = {
+                                meetingDescription = it
+                                appState.recordingManager.pendingDescription = it
+                            },
+                            label = { Text("Description / Agenda (optional)") },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp, max = 120.dp),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            maxLines = 5
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(
+                                onClick = {
+                                    val scope = CoroutineScope(Dispatchers.IO)
+                                    scope.launch {
+                                        val screenshot = com.jeeves.desktop.audio.ScreenshotCapture.captureScreen(
+                                            elapsedSeconds * 1000
+                                        )
+                                        if (screenshot != null) {
+                                            attachments = attachments + screenshot
+                                            appState.recordingManager.pendingAttachments = attachments
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Screenshot", style = MaterialTheme.typography.labelSmall)
+                            }
+                            if (attachments.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    "${attachments.size} screenshot(s)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             LiveTranscriptSection(
                 liveTranscript = liveTranscript,
                 isTranscribing = isTranscribing,

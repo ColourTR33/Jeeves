@@ -31,6 +31,23 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
     var windowWidthDp by remember { mutableStateOf(900) }
     val isCompact = windowWidthDp < COMPACT_WIDTH_THRESHOLD
 
+    // Recording state + persistent timer (survives tab switches)
+    val recordingState by appState.recordingManager.state.collectAsState()
+    var elapsedSeconds by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(recordingState) {
+        if (recordingState == com.jeeves.shared.domain.RecordingState.RECORDING) {
+            elapsedSeconds = 0
+            while (true) {
+                kotlinx.coroutines.delay(1000)
+                elapsedSeconds++
+            }
+        } else if (recordingState == com.jeeves.shared.domain.RecordingState.IDLE) {
+            elapsedSeconds = 0
+        }
+        // PAUSED: keep current value, don't increment
+    }
+
     // Observe error and progress from RecordingManager
     val error by appState.recordingManager.error.collectAsState()
     val progress by appState.recordingManager.transcriptionProgress.collectAsState()
@@ -44,7 +61,16 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
     val waitingCount = queueItems.count { it.status == com.jeeves.shared.recording.ProcessingStatus.WAITING }
     val failedItem = queueItems.lastOrNull { it.status == com.jeeves.shared.recording.ProcessingStatus.FAILED }
 
+    // Recording indicator takes priority in banner
+    val isRecordingActive = recordingState == com.jeeves.shared.domain.RecordingState.RECORDING ||
+        recordingState == com.jeeves.shared.domain.RecordingState.PAUSED
+
     val bannerMessage = when {
+        isRecordingActive -> {
+            val timeStr = formatElapsedTime(elapsedSeconds)
+            val stateLabel = if (recordingState == com.jeeves.shared.domain.RecordingState.PAUSED) "Paused" else "Recording"
+            "\uD83D\uDD34 $stateLabel — $timeStr"
+        }
         error != null -> error
         activeItem != null -> {
             val statusLabel = if (activeItem.status == com.jeeves.shared.recording.ProcessingStatus.TRANSCRIBING) "Transcribing" else "Summarising"
@@ -56,6 +82,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
         else -> null
     }
     val bannerType = when {
+        isRecordingActive -> NotificationType.INFO
         error != null -> NotificationType.ERROR
         failedItem != null && activeItem == null -> NotificationType.ERROR
         activeItem != null || progress != null -> NotificationType.PROGRESS
@@ -93,6 +120,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
                             message = bannerMessage,
                             type = bannerType,
                             onDismiss = when {
+                                isRecordingActive -> null
                                 error != null -> {{ appState.recordingManager.clearError() }}
                                 failedItem != null && activeItem == null -> {{ appState.recordingManager.processingQueue.clearCompleted() }}
                                 else -> null
@@ -103,6 +131,14 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
             }
         }
     }
+}
+
+private fun formatElapsedTime(seconds: Long): String {
+    val h = seconds / 3600
+    val m = (seconds % 3600) / 60
+    val s = seconds % 60
+    return if (h > 0) String.format("%02d:%02d:%02d", h, m, s)
+    else String.format("%02d:%02d", m, s)
 }
 
 @Composable
