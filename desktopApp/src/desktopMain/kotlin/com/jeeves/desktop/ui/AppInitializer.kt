@@ -9,7 +9,7 @@ import com.jeeves.desktop.audio.StreamingTranscriber
 import com.jeeves.desktop.data.CalendarService
 import com.jeeves.desktop.data.EmailExportService
 import com.jeeves.desktop.data.ExportService
-import com.jeeves.desktop.data.FileRecordingsRepository
+import com.jeeves.desktop.data.SqliteRecordingsRepository
 import com.jeeves.desktop.data.FileSettingsRepository
 import com.jeeves.desktop.data.ObsidianExportService
 import com.jeeves.desktop.data.RemindersExportService
@@ -80,7 +80,7 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
         val whisperClient = WhisperClient(httpClient)
         val ollamaClient = OllamaClient(httpClient)
         val settingsRepository = FileSettingsRepository()
-        val recordingsRepository = FileRecordingsRepository()
+        val recordingsRepository = SqliteRecordingsRepository().also { it.migrateFromJson() }
 
         val streamingTranscriber = StreamingTranscriber(httpClient)
         val streamingCallback = DesktopStreamingCallback(streamingTranscriber, audioRecorder, scope)
