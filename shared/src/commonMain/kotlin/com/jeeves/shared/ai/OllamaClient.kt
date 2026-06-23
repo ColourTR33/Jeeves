@@ -290,7 +290,7 @@ class OllamaClient(
 
     private fun parseHashtags(text: String): List<String> {
         val regex = Regex("#[\\w-]+")
-        return regex.findAll(text).map { it.value }.toList().distinct()
+        return regex.findAll(text).map { it.value.removePrefix("#") }.toList().distinct()
     }
 }
 

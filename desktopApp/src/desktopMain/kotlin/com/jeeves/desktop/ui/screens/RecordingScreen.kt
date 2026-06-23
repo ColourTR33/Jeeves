@@ -71,15 +71,26 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
         }
     }
 
+    // Track whether this is a fresh recording start (not a re-entry to the tab)
+    var hasResetForCurrentRecording by remember { mutableStateOf(false) }
+
     LaunchedEffect(recordingState) {
         if (recordingState == RecordingState.RECORDING) {
-            // Reset metadata for new recording
-            meetingTitle = ""
-            meetingDescription = ""
-            attachments = emptyList()
-            appState.recordingManager.pendingTitle = ""
-            appState.recordingManager.pendingDescription = ""
-            appState.recordingManager.pendingAttachments = emptyList()
+            // Only reset metadata once at the START of a new recording
+            if (!hasResetForCurrentRecording) {
+                hasResetForCurrentRecording = true
+                meetingTitle = ""
+                meetingDescription = ""
+                attachments = emptyList()
+                appState.recordingManager.pendingTitle = ""
+                appState.recordingManager.pendingDescription = ""
+                appState.recordingManager.pendingAttachments = emptyList()
+            } else {
+                // Re-entering tab while recording — restore from pending fields
+                meetingTitle = appState.recordingManager.pendingTitle
+                meetingDescription = appState.recordingManager.pendingDescription
+                attachments = appState.recordingManager.pendingAttachments
+            }
             // Refresh streaming setting and audio source at start of each recording
             val settings = appState.settingsRepository.getSettings()
             streamingEnabled = settings.streamingEnabled
@@ -95,6 +106,7 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
             }
         } else if (recordingState == RecordingState.IDLE) {
             elapsedSeconds = 0
+            hasResetForCurrentRecording = false
         }
     }
 

@@ -754,21 +754,28 @@ private fun RecordingDetail(
             if (addingTag) {
                 OutlinedTextField(
                     value = newTag,
-                    onValueChange = { newTag = it },
-                    singleLine = true,
-                    modifier = Modifier.width(100.dp).height(36.dp),
-                    textStyle = MaterialTheme.typography.labelSmall,
-                    keyboardActions = KeyboardActions(onDone = {
-                        if (newTag.isNotBlank()) {
-                            scope.launch {
-                                val updated = recording.copy(tags = recording.tags + newTag.trim())
-                                appState.recordingsRepository.updateRecording(updated)
+                    onValueChange = { value ->
+                        // Submit on Enter key (newline in the value)
+                        if (value.contains("\n")) {
+                            val tagText = value.replace("\n", "").trim()
+                            if (tagText.isNotBlank()) {
+                                scope.launch {
+                                    val cleanTag = tagText.removePrefix("#").trim()
+                                    val updated = recording.copy(tags = recording.tags + cleanTag)
+                                    appState.recordingsRepository.updateRecording(updated)
+                                }
                             }
                             newTag = ""
+                            addingTag = false
+                        } else {
+                            newTag = value
                         }
-                        addingTag = false
-                    }),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                    },
+                    singleLine = false,
+                    maxLines = 1,
+                    modifier = Modifier.width(120.dp).height(36.dp),
+                    textStyle = MaterialTheme.typography.labelSmall,
+                    placeholder = { Text("tag name", style = MaterialTheme.typography.labelSmall) }
                 )
             } else {
                 IconButton(onClick = { addingTag = true }, modifier = Modifier.size(24.dp)) {
