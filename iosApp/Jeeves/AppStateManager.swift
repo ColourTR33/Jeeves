@@ -181,6 +181,24 @@ class AppStateManager: ObservableObject {
                 if useStreaming {
                     print("[Jeeves] Using streaming transcript (\(streamingText.count) chars)")
                     transcription = streamingText
+                } else if settings.useGroqCloud && !settings.groqApiKey.isEmpty {
+                    // Use Groq cloud for better accuracy
+                    print("[Jeeves] Using Groq cloud transcription (\(settings.groqModel))")
+                    do {
+                        transcription = try await GroqWhisperClient.shared.transcribe(
+                            audioFilePath: recording.filePath,
+                            apiKey: settings.groqApiKey,
+                            model: settings.groqModel
+                        )
+                    } catch {
+                        // Fall back to local on Groq failure
+                        print("[Jeeves] Groq failed (\(error.localizedDescription)), falling back to local")
+                        transcription = try await WhisperAPIClient.shared.transcribe(
+                            audioFilePath: recording.filePath,
+                            baseUrl: settings.whisperBaseUrl,
+                            model: settings.whisperModel
+                        )
+                    }
                 } else {
                     transcription = try await WhisperAPIClient.shared.transcribe(
                         audioFilePath: recording.filePath,
@@ -198,10 +216,24 @@ class AppStateManager: ObservableObject {
                 let summary = try await OllamaAPIClient.shared.summarize(
                     transcription: transcription,
                     baseUrl: settings.ollamaBaseUrl,
-                    model: settings.ollamaModel
+                    model: settings.ollamaModel,
+                    description: recording.description,
+                    attachmentCount: recording.attachments.count
                 )
 
                 saveSummary(summary, for: recording.id)
+
+                // Merge auto-generated tags into the recording
+                if !summary.tags.isEmpty {
+                    await MainActor.run {
+                        if let index = self.recordings.firstIndex(where: { $0.id == recording.id }) {
+                            let existingTags = self.recordings[index].tags
+                            let merged = Array(Set(existingTags + summary.tags))
+                            self.recordings[index].tags = merged
+                            self.saveRecordings()
+                        }
+                    }
+                }
 
                 await MainActor.run {
                     self.processingStatus[recording.id] = .complete
@@ -525,6 +557,10 @@ struct SettingsData: Codable {
     var overlapWindowSeconds: Float = 2.0
     // Speaker diarization
     var diarizationEnabled: Bool = false
+    // Cloud transcription (Groq)
+    var useGroqCloud: Bool = false
+    var groqApiKey: String = ""
+    var groqModel: String = "whisper-large-v3-turbo"
 }
 
 struct SummaryData: Codable {
@@ -532,23 +568,26 @@ struct SummaryData: Codable {
     let keyPoints: [String]
     let actionItems: [String]
     let questions: [String]
+    let tags: [String]
     let modelUsed: String
 
-    // Allow decoding older data that may not have "questions"
+    // Allow decoding older data that may not have "questions" or "tags"
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         summary = try container.decode(String.self, forKey: .summary)
         keyPoints = try container.decode([String].self, forKey: .keyPoints)
         actionItems = try container.decode([String].self, forKey: .actionItems)
         questions = try container.decodeIfPresent([String].self, forKey: .questions) ?? []
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         modelUsed = try container.decode(String.self, forKey: .modelUsed)
     }
 
-    init(summary: String, keyPoints: [String], actionItems: [String], questions: [String] = [], modelUsed: String) {
+    init(summary: String, keyPoints: [String], actionItems: [String], questions: [String] = [], tags: [String] = [], modelUsed: String) {
         self.summary = summary
         self.keyPoints = keyPoints
         self.actionItems = actionItems
         self.questions = questions
+        self.tags = tags
         self.modelUsed = modelUsed
     }
 }
