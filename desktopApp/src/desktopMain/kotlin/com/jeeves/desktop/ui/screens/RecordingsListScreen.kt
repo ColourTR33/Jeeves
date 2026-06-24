@@ -27,7 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.jeeves.desktop.data.SearchResult
 import com.jeeves.shared.domain.Recording
 import com.jeeves.shared.domain.RecordingState
@@ -703,47 +702,30 @@ private fun AttachmentsGallery(recording: Recording) {
 
     // Full-size preview dialog
     if (previewAttachment != null) {
-        Dialog(
-            onDismissRequest = { previewAttachment = null }
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(0.9f).fillMaxHeight(0.8f),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Screenshot at ${formatAttachmentTime(previewAttachment!!.timestampMs)}",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        IconButton(onClick = { previewAttachment = null }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Close")
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val imageBitmap = remember(previewAttachment!!.filePath) {
-                        loadImageBitmap(previewAttachment!!.filePath)
-                    }
-                    if (imageBitmap != null) {
-                        Image(
-                            bitmap = imageBitmap,
-                            contentDescription = "Screenshot",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit
-                        )
-                    } else {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("Could not load image", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
+        AlertDialog(
+            onDismissRequest = { previewAttachment = null },
+            title = { Text("Screenshot at ${formatAttachmentTime(previewAttachment!!.timestampMs)}") },
+            text = {
+                val imageBitmap = remember(previewAttachment!!.filePath) {
+                    loadImageBitmap(previewAttachment!!.filePath)
+                }
+                if (imageBitmap != null) {
+                    Image(
+                        bitmap = imageBitmap,
+                        contentDescription = "Screenshot",
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Text("Could not load image", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { previewAttachment = null }) {
+                    Text("Close")
                 }
             }
-        }
+        )
     }
 }
 
