@@ -2,6 +2,8 @@ package com.jeeves.desktop.data
 
 import com.jeeves.shared.ai.AppLogger
 import com.jeeves.shared.domain.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -13,12 +15,16 @@ import java.sql.DriverManager
  * SQLite-based recordings persistence for desktop.
  * Replaces FileRecordingsRepository for better performance at scale.
  * Stores recordings, transcriptions, and summaries in a single DB file.
+ * All operations are serialized via a mutex to prevent "database is locked" errors.
  */
 class SqliteRecordingsRepository : RecordingsRepository {
 
     private val json = Json {
         ignoreUnknownKeys = true
     }
+
+    /** Mutex to serialize all database operations (SQLite is single-writer). */
+    private val dbMutex = Mutex()
 
     private val dbPath: String
         get() {
@@ -30,6 +36,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
     private val connection: Connection by lazy {
         DriverManager.getConnection("jdbc:sqlite:$dbPath").also { conn ->
             conn.createStatement().execute("PRAGMA journal_mode=WAL")
+            conn.createStatement().execute("PRAGMA busy_timeout=5000")
             conn.createStatement().execute("PRAGMA foreign_keys=ON")
             createTables(conn)
             AppLogger.info("SqliteRecordingsRepository", "Database opened: $dbPath")
@@ -84,7 +91,11 @@ class SqliteRecordingsRepository : RecordingsRepository {
 
     // --- Recordings ---
 
-    override suspend fun saveRecording(recording: Recording) {
+    override suspend fun saveRecording(recording: Recording) = dbMutex.withLock {
+        saveRecordingInternal(recording)
+    }
+
+    private fun saveRecordingInternal(recording: Recording) {
         val stmt = connection.prepareStatement("""
             INSERT OR REPLACE INTO recordings (id, file_path, duration_ms, created_at, title, description, template, tags, folder, highlights, attachments)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -104,7 +115,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
         stmt.close()
     }
 
-    override suspend fun getRecordings(): List<Recording> {
+    override suspend fun getRecordings(): List<Recording> = dbMutex.withLock {
         val stmt = connection.createStatement()
         val rs = stmt.executeQuery("SELECT * FROM recordings ORDER BY created_at DESC")
         val recordings = mutableListOf<Recording>()
@@ -116,7 +127,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
         return recordings
     }
 
-    override suspend fun getRecording(id: String): Recording? {
+    override suspend fun getRecording(id: String): Recording? = dbMutex.withLock {
         val stmt = connection.prepareStatement("SELECT * FROM recordings WHERE id = ?")
         stmt.setString(1, id)
         val rs = stmt.executeQuery()
@@ -126,31 +137,37 @@ class SqliteRecordingsRepository : RecordingsRepository {
         return recording
     }
 
-    override suspend fun updateRecording(recording: Recording) {
-        saveRecording(recording) // INSERT OR REPLACE handles update
+    override suspend fun updateRecording(recording: Recording) = dbMutex.withLock {
+        saveRecordingInternal(recording)
     }
 
     override suspend fun deleteRecording(id: String) {
-        connection.prepareStatement("DELETE FROM recordings WHERE id = ?").apply {
-            setString(1, id)
-            executeUpdate()
-            close()
-        }
-        connection.prepareStatement("DELETE FROM transcriptions WHERE recording_id = ?").apply {
-            setString(1, id)
-            executeUpdate()
-            close()
-        }
-        connection.prepareStatement("DELETE FROM summaries WHERE recording_id = ?").apply {
-            setString(1, id)
-            executeUpdate()
-            close()
+        dbMutex.withLock {
+            connection.prepareStatement("DELETE FROM recordings WHERE id = ?").apply {
+                setString(1, id)
+                executeUpdate()
+                close()
+            }
+            connection.prepareStatement("DELETE FROM transcriptions WHERE recording_id = ?").apply {
+                setString(1, id)
+                executeUpdate()
+                close()
+            }
+            connection.prepareStatement("DELETE FROM summaries WHERE recording_id = ?").apply {
+                setString(1, id)
+                executeUpdate()
+                close()
+            }
         }
     }
 
     // --- Transcriptions ---
 
-    override suspend fun saveTranscription(result: TranscriptionResult) {
+    override suspend fun saveTranscription(result: TranscriptionResult) = dbMutex.withLock {
+        saveTranscriptionInternal(result)
+    }
+
+    private fun saveTranscriptionInternal(result: TranscriptionResult) {
         val stmt = connection.prepareStatement("""
             INSERT OR REPLACE INTO transcriptions (recording_id, text, segments, language, duration_ms, diarization_unavailable)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -165,7 +182,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
         stmt.close()
     }
 
-    override suspend fun getTranscription(recordingId: String): TranscriptionResult? {
+    override suspend fun getTranscription(recordingId: String): TranscriptionResult? = dbMutex.withLock {
         val stmt = connection.prepareStatement("SELECT * FROM transcriptions WHERE recording_id = ?")
         stmt.setString(1, recordingId)
         val rs = stmt.executeQuery()
@@ -186,7 +203,11 @@ class SqliteRecordingsRepository : RecordingsRepository {
 
     // --- Summaries ---
 
-    override suspend fun saveSummary(result: SummaryResult) {
+    override suspend fun saveSummary(result: SummaryResult) = dbMutex.withLock {
+        saveSummaryInternal(result)
+    }
+
+    private fun saveSummaryInternal(result: SummaryResult) {
         val stmt = connection.prepareStatement("""
             INSERT OR REPLACE INTO summaries (recording_id, summary, key_points, action_items, questions, tags, model_used)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -202,7 +223,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
         stmt.close()
     }
 
-    override suspend fun getSummary(recordingId: String): SummaryResult? {
+    override suspend fun getSummary(recordingId: String): SummaryResult? = dbMutex.withLock {
         val stmt = connection.prepareStatement("SELECT * FROM summaries WHERE recording_id = ?")
         stmt.setString(1, recordingId)
         val rs = stmt.executeQuery()
@@ -250,14 +271,14 @@ class SqliteRecordingsRepository : RecordingsRepository {
             var imported = 0
             for (recording in recordingsList.recordings) {
                 // Import recording
-                kotlinx.coroutines.runBlocking { saveRecording(recording) }
+                saveRecordingInternal(recording)
 
                 // Import transcription if exists
                 val transFile = File(dataDir, "transcription_${recording.id}.json")
                 if (transFile.exists()) {
                     try {
                         val trans = jsonParser.decodeFromString<TranscriptionResult>(transFile.readText())
-                        kotlinx.coroutines.runBlocking { saveTranscription(trans) }
+                        saveTranscriptionInternal(trans)
                     } catch (e: Exception) {
                         AppLogger.warn("SqliteRecordingsRepository", "Failed to import transcription for ${recording.id}: ${e.message}")
                     }
@@ -268,7 +289,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
                 if (summaryFile.exists()) {
                     try {
                         val summary = jsonParser.decodeFromString<SummaryResult>(summaryFile.readText())
-                        kotlinx.coroutines.runBlocking { saveSummary(summary) }
+                        saveSummaryInternal(summary)
                     } catch (e: Exception) {
                         AppLogger.warn("SqliteRecordingsRepository", "Failed to import summary for ${recording.id}: ${e.message}")
                     }
