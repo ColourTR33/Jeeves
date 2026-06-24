@@ -1,6 +1,7 @@
 package com.jeeves.desktop.ui.screens
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,10 +22,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.jeeves.desktop.data.SearchResult
 import com.jeeves.shared.domain.Recording
 import com.jeeves.shared.domain.RecordingState
@@ -656,6 +659,173 @@ private fun ProcessingStatusIcon(item: com.jeeves.shared.recording.ProcessingIte
     }
 }
 
+/**
+ * Displays a horizontal strip of screenshot thumbnails with timestamps.
+ * Click to view full-size, with delete option.
+ */
+@Composable
+private fun AttachmentsGallery(recording: Recording) {
+    val appState = LocalAppState.current
+    val scope = rememberCoroutineScope()
+    var previewAttachment by remember { mutableStateOf<com.jeeves.shared.domain.Attachment?>(null) }
+
+    Column {
+        Text(
+            "Screenshots (${recording.attachments.size})",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Thumbnail strip
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            recording.attachments.forEach { attachment ->
+                AttachmentThumbnail(
+                    attachment = attachment,
+                    onClick = { previewAttachment = attachment },
+                    onDelete = {
+                        scope.launch {
+                            val updated = recording.copy(
+                                attachments = recording.attachments.filter { it.id != attachment.id }
+                            )
+                            appState.recordingsRepository.updateRecording(updated)
+                            // Delete the file
+                            try { java.io.File(attachment.filePath).delete() } catch (_: Exception) {}
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    // Full-size preview dialog
+    if (previewAttachment != null) {
+        Dialog(
+            onDismissRequest = { previewAttachment = null }
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(0.9f).fillMaxHeight(0.8f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Screenshot at ${formatAttachmentTime(previewAttachment!!.timestampMs)}",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        IconButton(onClick = { previewAttachment = null }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val imageBitmap = remember(previewAttachment!!.filePath) {
+                        loadImageBitmap(previewAttachment!!.filePath)
+                    }
+                    if (imageBitmap != null) {
+                        Image(
+                            bitmap = imageBitmap,
+                            contentDescription = "Screenshot",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Could not load image", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentThumbnail(
+    attachment: com.jeeves.shared.domain.Attachment,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val imageBitmap = remember(attachment.filePath) { loadImageBitmap(attachment.filePath) }
+
+    Card(
+        modifier = Modifier
+            .size(width = 120.dp, height = 90.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Box {
+            if (imageBitmap != null) {
+                Image(
+                    bitmap = imageBitmap,
+                    contentDescription = "Screenshot",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(24.dp))
+                }
+            }
+
+            // Timestamp badge
+            Surface(
+                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+                shape = RoundedCornerShape(4.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+            ) {
+                Text(
+                    formatAttachmentTime(attachment.timestampMs),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+
+            // Delete button
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.align(Alignment.TopEnd).size(24.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Delete",
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+}
+
+private fun loadImageBitmap(filePath: String): androidx.compose.ui.graphics.ImageBitmap? {
+    return try {
+        val file = java.io.File(filePath)
+        if (!file.exists()) return null
+        file.inputStream().buffered().use { stream ->
+            androidx.compose.ui.res.loadImageBitmap(stream)
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun formatAttachmentTime(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "${minutes}:${String.format("%02d", seconds)}"
+}
+
 // --- Detail view (unchanged from before) ---
 
 @Composable
@@ -844,6 +1014,12 @@ private fun RecordingDetail(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        // Screenshots section (if any attachments)
+        if (recording.attachments.isNotEmpty()) {
+            AttachmentsGallery(recording = recording)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         // Export buttons
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
