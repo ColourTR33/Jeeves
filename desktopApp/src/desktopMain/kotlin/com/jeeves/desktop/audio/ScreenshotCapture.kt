@@ -1,16 +1,15 @@
 package com.jeeves.desktop.audio
 
+import com.jeeves.shared.ai.AppLogger
 import com.jeeves.shared.domain.Attachment
-import java.awt.Rectangle
-import java.awt.Robot
-import java.awt.Toolkit
+import java.awt.Window
 import java.io.File
 import java.util.UUID
-import javax.imageio.ImageIO
 
 /**
  * Utility for capturing screenshots during a recording session.
- * Screenshots are saved to the Jeeves recordings/screenshots directory.
+ * Uses macOS `screencapture` command for native screenshot behaviour.
+ * Hides the Jeeves window during capture so it doesn't appear in the screenshot.
  */
 object ScreenshotCapture {
 
@@ -21,23 +20,52 @@ object ScreenshotCapture {
     }
 
     /**
-     * Captures the full screen and saves it as a PNG file.
-     * Returns an Attachment with the file path and timestamp, or null on failure.
+     * Captures the screen excluding the Jeeves window and saves it as a PNG file.
+     * Briefly hides all Jeeves windows, takes the screenshot using macOS screencapture,
+     * then restores the windows.
      *
      * @param timestampMs milliseconds into the recording when the screenshot was taken
      */
     fun captureScreen(timestampMs: Long): Attachment? {
         return try {
-            val robot = Robot()
-            val screenSize = Toolkit.getDefaultToolkit().screenSize
-            val screenRect = Rectangle(screenSize)
-            val image = robot.createScreenCapture(screenRect)
-
             val id = UUID.randomUUID().toString()
             val fileName = "screenshot_${System.currentTimeMillis()}.png"
             val file = File(screenshotsDir, fileName)
 
-            ImageIO.write(image, "png", file)
+            // Hide all Jeeves windows before capture
+            val windows = Window.getWindows().filter { it.isVisible }
+            windows.forEach { it.isVisible = false }
+
+            // Small delay to ensure windows are hidden before capture
+            Thread.sleep(100)
+
+            try {
+                // Use macOS screencapture: -x = no sound, -C = capture cursor, -m = main display only
+                val process = ProcessBuilder("/usr/sbin/screencapture", "-x", "-m", file.absolutePath)
+                    .redirectErrorStream(true)
+                    .start()
+
+                val completed = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+                if (!completed) {
+                    process.destroyForcibly()
+                    AppLogger.error("ScreenshotCapture", "screencapture timed out")
+                    return null
+                }
+
+                if (process.exitValue() != 0) {
+                    val output = process.inputStream.bufferedReader().readText()
+                    AppLogger.error("ScreenshotCapture", "screencapture failed: $output")
+                    return null
+                }
+            } finally {
+                // Always restore windows
+                windows.forEach { it.isVisible = true }
+            }
+
+            if (!file.exists() || file.length() == 0L) {
+                AppLogger.error("ScreenshotCapture", "Screenshot file not created")
+                return null
+            }
 
             Attachment(
                 id = id,
@@ -46,7 +74,9 @@ object ScreenshotCapture {
                 caption = ""
             )
         } catch (e: Exception) {
-            println("[ScreenshotCapture] Failed to capture screen: ${e.message}")
+            AppLogger.error("ScreenshotCapture", "Failed to capture screen: ${e.message}")
+            // Ensure windows are restored on exception
+            Window.getWindows().forEach { if (!it.isVisible) it.isVisible = true }
             null
         }
     }

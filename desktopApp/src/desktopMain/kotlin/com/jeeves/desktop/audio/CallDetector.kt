@@ -18,13 +18,13 @@ class CallDetector(private val scope: CoroutineScope) {
 
     /** Known process names for communication apps (lowercase). */
     private val callAppProcesses = setOf(
-        "teams.exe", "ms-teams.exe",          // Microsoft Teams
-        "zoom.exe", "zoomit.exe",              // Zoom
-        "slack.exe",                            // Slack (huddle)
-        "discord.exe",                          // Discord
-        "webexmta.exe", "ciscowebex.exe",      // WebEx
-        "skype.exe",                            // Skype
-        "googlemeet",                           // Google Meet (browser-based, harder to detect)
+        "microsoft teams", "teams",            // Microsoft Teams
+        "zoom.us",                              // Zoom
+        "slack",                                // Slack (huddle)
+        "discord",                              // Discord
+        "webex", "cisco webex",                 // WebEx
+        "skype",                                // Skype
+        "facetime",                             // FaceTime
     )
 
     /** Window title keywords that indicate an active call (not just the app open). */
@@ -101,30 +101,24 @@ class CallDetector(private val scope: CoroutineScope) {
         dismissed = false
 
         try {
-            val process = ProcessBuilder("tasklist", "/FO", "CSV", "/NH")
+            // Use macOS 'ps' command to list running processes
+            val process = ProcessBuilder("/bin/ps", "-axco", "comm")
                 .redirectErrorStream(true)
                 .start()
 
             val output = process.inputStream.bufferedReader().readText()
-            process.waitFor()
+            process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
 
             val runningProcesses = output.lines()
-                .mapNotNull { line ->
-                    // CSV format: "process.exe","PID","Session","Session#","Mem"
-                    val parts = line.split(",")
-                    if (parts.size >= 2) {
-                        parts[0].trim('"').lowercase()
-                    } else null
-                }
+                .map { it.trim().lowercase() }
+                .filter { it.isNotBlank() }
 
             // Check if any call app process is running
             val matchedApp = callAppProcesses.firstOrNull { appProcess ->
-                runningProcesses.any { it == appProcess }
+                runningProcesses.any { it.contains(appProcess) }
             }
 
             if (matchedApp != null && !_callDetected.value) {
-                // Verify it's likely in a call by checking for audio-related processes
-                // or just notify that the app is running (user can choose to record)
                 val appName = when {
                     matchedApp.contains("teams") -> "Microsoft Teams"
                     matchedApp.contains("zoom") -> "Zoom"
@@ -132,6 +126,7 @@ class CallDetector(private val scope: CoroutineScope) {
                     matchedApp.contains("discord") -> "Discord"
                     matchedApp.contains("webex") || matchedApp.contains("cisco") -> "WebEx"
                     matchedApp.contains("skype") -> "Skype"
+                    matchedApp.contains("facetime") -> "FaceTime"
                     else -> matchedApp
                 }
 
