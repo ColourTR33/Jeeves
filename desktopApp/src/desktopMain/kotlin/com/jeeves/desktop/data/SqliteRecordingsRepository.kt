@@ -2,8 +2,6 @@ package com.jeeves.desktop.data
 
 import com.jeeves.shared.ai.AppLogger
 import com.jeeves.shared.domain.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -23,9 +21,6 @@ class SqliteRecordingsRepository : RecordingsRepository {
         ignoreUnknownKeys = true
     }
 
-    /** Mutex to serialize all database operations (SQLite is single-writer). */
-    private val dbMutex = Mutex()
-
     private val dbPath: String
         get() {
             val dir = File(System.getProperty("user.home"), "Jeeves/data")
@@ -38,8 +33,16 @@ class SqliteRecordingsRepository : RecordingsRepository {
             conn.createStatement().execute("PRAGMA journal_mode=WAL")
             conn.createStatement().execute("PRAGMA busy_timeout=5000")
             conn.createStatement().execute("PRAGMA foreign_keys=ON")
+            conn.autoCommit = true
             createTables(conn)
             AppLogger.info("SqliteRecordingsRepository", "Database opened: $dbPath")
+        }
+    }
+
+    /** All DB access goes through this to ensure thread safety. */
+    private fun <T> withDb(block: (Connection) -> T): T {
+        return synchronized(connection) {
+            block(connection)
         }
     }
 
@@ -91,9 +94,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
 
     // --- Recordings ---
 
-    override suspend fun saveRecording(recording: Recording) = dbMutex.withLock {
-        saveRecordingInternal(recording)
-    }
+    override suspend fun saveRecording(recording: Recording) { withDb { saveRecordingInternal(recording) } }
 
     private fun saveRecordingInternal(recording: Recording) {
         val stmt = connection.prepareStatement("""
@@ -115,7 +116,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
         stmt.close()
     }
 
-    override suspend fun getRecordings(): List<Recording> = dbMutex.withLock {
+    override suspend fun getRecordings(): List<Recording> = withDb {
         val stmt = connection.createStatement()
         val rs = stmt.executeQuery("SELECT * FROM recordings ORDER BY created_at DESC")
         val recordings = mutableListOf<Recording>()
@@ -124,25 +125,25 @@ class SqliteRecordingsRepository : RecordingsRepository {
         }
         rs.close()
         stmt.close()
-        return recordings
+        recordings
     }
 
-    override suspend fun getRecording(id: String): Recording? = dbMutex.withLock {
+    override suspend fun getRecording(id: String): Recording? = withDb {
         val stmt = connection.prepareStatement("SELECT * FROM recordings WHERE id = ?")
         stmt.setString(1, id)
         val rs = stmt.executeQuery()
         val recording = if (rs.next()) rowToRecording(rs) else null
         rs.close()
         stmt.close()
-        return recording
+        recording
     }
 
-    override suspend fun updateRecording(recording: Recording) = dbMutex.withLock {
+    override suspend fun updateRecording(recording: Recording) = withDb {
         saveRecordingInternal(recording)
     }
 
     override suspend fun deleteRecording(id: String) {
-        dbMutex.withLock {
+        withDb {
             connection.prepareStatement("DELETE FROM recordings WHERE id = ?").apply {
                 setString(1, id)
                 executeUpdate()
@@ -163,7 +164,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
 
     // --- Transcriptions ---
 
-    override suspend fun saveTranscription(result: TranscriptionResult) = dbMutex.withLock {
+    override suspend fun saveTranscription(result: TranscriptionResult) = withDb {
         saveTranscriptionInternal(result)
     }
 
@@ -182,7 +183,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
         stmt.close()
     }
 
-    override suspend fun getTranscription(recordingId: String): TranscriptionResult? = dbMutex.withLock {
+    override suspend fun getTranscription(recordingId: String): TranscriptionResult? = withDb {
         val stmt = connection.prepareStatement("SELECT * FROM transcriptions WHERE recording_id = ?")
         stmt.setString(1, recordingId)
         val rs = stmt.executeQuery()
@@ -198,12 +199,12 @@ class SqliteRecordingsRepository : RecordingsRepository {
         } else null
         rs.close()
         stmt.close()
-        return result
+        result
     }
 
     // --- Summaries ---
 
-    override suspend fun saveSummary(result: SummaryResult) = dbMutex.withLock {
+    override suspend fun saveSummary(result: SummaryResult) = withDb {
         saveSummaryInternal(result)
     }
 
@@ -223,7 +224,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
         stmt.close()
     }
 
-    override suspend fun getSummary(recordingId: String): SummaryResult? = dbMutex.withLock {
+    override suspend fun getSummary(recordingId: String): SummaryResult? = withDb {
         val stmt = connection.prepareStatement("SELECT * FROM summaries WHERE recording_id = ?")
         stmt.setString(1, recordingId)
         val rs = stmt.executeQuery()
@@ -240,7 +241,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
         } else null
         rs.close()
         stmt.close()
-        return result
+        result
     }
 
     // --- Migration from JSON ---
@@ -327,3 +328,4 @@ class SqliteRecordingsRepository : RecordingsRepository {
         )
     }
 }
+
