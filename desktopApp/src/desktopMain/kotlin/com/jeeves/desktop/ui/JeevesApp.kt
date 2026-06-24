@@ -66,8 +66,10 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
         recordingState == com.jeeves.shared.domain.RecordingState.PAUSED
 
     // Call detection
-    val callDetected by appState.callDetector?.callDetected?.collectAsState() ?: remember { mutableStateOf(false) }
-    val detectedApp by appState.callDetector?.detectedApp?.collectAsState() ?: remember { mutableStateOf(null) }
+    val callDetectedState = appState.callDetector?.callDetected?.collectAsState()
+    val callDetected = callDetectedState?.value ?: false
+    val detectedAppState = appState.callDetector?.detectedApp?.collectAsState()
+    val detectedApp = detectedAppState?.value
 
     val bannerMessage = when {
         isRecordingActive -> {
