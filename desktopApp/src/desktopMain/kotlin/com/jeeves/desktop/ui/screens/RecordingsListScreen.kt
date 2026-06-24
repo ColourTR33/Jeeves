@@ -1,7 +1,6 @@
 package com.jeeves.desktop.ui.screens
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -710,7 +709,7 @@ private fun AttachmentsGallery(recording: Recording) {
                     loadImageBitmap(previewAttachment!!.filePath)
                 }
                 if (imageBitmap != null) {
-                    Image(
+                    androidx.compose.foundation.Image(
                         bitmap = imageBitmap,
                         contentDescription = "Screenshot",
                         modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
@@ -745,7 +744,7 @@ private fun AttachmentThumbnail(
     ) {
         Box {
             if (imageBitmap != null) {
-                Image(
+                androidx.compose.foundation.Image(
                     bitmap = imageBitmap,
                     contentDescription = "Screenshot",
                     modifier = Modifier.fillMaxSize(),
