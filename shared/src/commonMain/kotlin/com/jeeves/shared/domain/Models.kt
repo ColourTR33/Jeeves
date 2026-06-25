@@ -115,11 +115,13 @@ enum class AiEndpointType {
  * Diarization mode matching whisper.cpp server flags.
  * DIARIZE: Stereo channel-based speaker identification (requires 2-channel audio and --diarize server flag)
  * TINYDIARIZE: Model-based speaker turn detection (requires --tinydiarize server flag and tdrz model)
+ * PYANNOTE: Uses a local pyannote diarization server for accurate speaker identification (recommended)
  */
 @Serializable
 enum class DiarizationMode {
     DIARIZE,
-    TINYDIARIZE
+    TINYDIARIZE,
+    PYANNOTE
 }
 
 /**
@@ -168,7 +170,8 @@ data class AppSettings(
     val audioFormat: String = "wav",
     val sampleRate: Int = 16000,
     val diarizationEnabled: Boolean = false,
-    val diarizationMode: DiarizationMode = DiarizationMode.TINYDIARIZE,
+    val diarizationMode: DiarizationMode = DiarizationMode.PYANNOTE,
+    val diarizationServerUrl: String = "http://localhost:8180",  // Local pyannote diarization server
     val stereoRecording: Boolean = false,
     val streamingEnabled: Boolean = true,
     val chunkIntervalSeconds: Int = 5,

@@ -106,7 +106,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             recordingsRepository = recordingsRepository,
             scope = scope,
             streamingCallback = streamingCallback,
-            groqWhisperClient = com.jeeves.shared.ai.GroqWhisperClient(httpClient)
+            groqWhisperClient = com.jeeves.shared.ai.GroqWhisperClient(httpClient),
+            diarizationClient = com.jeeves.shared.ai.DiarizationClient(httpClient)
         )
 
         val callDetector = com.jeeves.desktop.audio.CallDetector(scope)

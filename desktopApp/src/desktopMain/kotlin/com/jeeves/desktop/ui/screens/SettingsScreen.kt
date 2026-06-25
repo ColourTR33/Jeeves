@@ -338,11 +338,32 @@ fun SettingsScreen() {
                     )
                 }
 
-                // Mode selection and stereo - only shown when diarization is enabled
+                // Mode selection - only shown when diarization is enabled
                 if (settings.diarizationEnabled) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("Mode", style = MaterialTheme.typography.bodyMedium)
                     Spacer(modifier = Modifier.height(4.dp))
+
+                    // Pyannote radio button (recommended)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = settings.diarizationMode == DiarizationMode.PYANNOTE,
+                            onClick = {
+                                settings = settings.copy(diarizationMode = DiarizationMode.PYANNOTE)
+                                isSaved = false
+                            }
+                        )
+                        Column(modifier = Modifier.padding(start = 4.dp)) {
+                            Text("Pyannote (recommended)")
+                            Text(
+                                "Accurate speaker identification via local pyannote server",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
 
                     // TinyDiarize radio button
                     Row(
@@ -355,7 +376,7 @@ fun SettingsScreen() {
                                 isSaved = false
                             }
                         )
-                        Text("TinyDiarize (recommended)", modifier = Modifier.padding(start = 4.dp))
+                        Text("TinyDiarize (legacy)", modifier = Modifier.padding(start = 4.dp))
                     }
 
                     // Diarize radio button
@@ -370,6 +391,28 @@ fun SettingsScreen() {
                             }
                         )
                         Text("Diarize (stereo)", modifier = Modifier.padding(start = 4.dp))
+                    }
+
+                    // Pyannote server URL - shown when PYANNOTE mode selected
+                    if (settings.diarizationMode == DiarizationMode.PYANNOTE) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = settings.diarizationServerUrl,
+                            onValueChange = {
+                                settings = settings.copy(diarizationServerUrl = it)
+                                isSaved = false
+                            },
+                            label = { Text("Diarization Server URL") },
+                            placeholder = { Text("http://localhost:8180") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Start with: cd diarization-server && python server.py",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
 
                     // Stereo recording switch - only shown when DIARIZE mode selected

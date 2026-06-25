@@ -24,6 +24,19 @@ class DiarizationResponseParser {
         return when (mode) {
             DiarizationMode.DIARIZE -> parseDiarizeMode(segments)
             DiarizationMode.TINYDIARIZE -> parseTinyDiarizeMode(segments)
+            DiarizationMode.PYANNOTE -> {
+                // Pyannote mode doesn't use whisper-level diarization parsing —
+                // speaker labels are applied separately via DiarizationClient.
+                // Return segments without speaker labels here.
+                segments.map { segment ->
+                    TranscriptionSegment(
+                        startMs = (segment.start * 1000).toLong(),
+                        endMs = (segment.end * 1000).toLong(),
+                        text = segment.text,
+                        speaker = null
+                    )
+                }
+            }
         }
     }
 

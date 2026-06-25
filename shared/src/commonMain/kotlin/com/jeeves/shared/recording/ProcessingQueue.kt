@@ -1,6 +1,7 @@
 package com.jeeves.shared.recording
 
 import com.jeeves.shared.ai.AppLogger
+import com.jeeves.shared.ai.DiarizationClient
 import com.jeeves.shared.ai.GroqWhisperClient
 import com.jeeves.shared.ai.OllamaClient
 import com.jeeves.shared.ai.WhisperClient
@@ -25,6 +26,8 @@ enum class ProcessingStatus {
     WAITING,
     /** Transcription is in progress */
     TRANSCRIBING,
+    /** Speaker diarization is in progress */
+    DIARIZING,
     /** Summarization is in progress */
     SUMMARIZING,
     /** Both transcription and summarization completed successfully */
@@ -55,7 +58,8 @@ class ProcessingQueue(
     private val settingsRepository: SettingsRepository,
     private val recordingsRepository: RecordingsRepository,
     private val scope: CoroutineScope,
-    private val groqClient: GroqWhisperClient? = null
+    private val groqClient: GroqWhisperClient? = null,
+    private val diarizationClient: DiarizationClient? = null
 ) {
     private val _queue = MutableStateFlow<List<ProcessingItem>>(emptyList())
     val queue: StateFlow<List<ProcessingItem>> = _queue.asStateFlow()
@@ -190,14 +194,48 @@ class ProcessingQueue(
             recordingsRepository.saveTranscription(transcription)
             AppLogger.info("ProcessingQueue", "Transcription complete for ${recording.id}")
 
-            // Step 2: Summarize
+            // Step 2: Diarize (if pyannote mode is enabled and server is available)
+            var diarizedTranscription = transcription
+            if (settings.diarizationEnabled &&
+                settings.diarizationMode == DiarizationMode.PYANNOTE &&
+                diarizationClient != null &&
+                transcription.segments.isNotEmpty()
+            ) {
+                updateStatus(item.recordingId, ProcessingStatus.DIARIZING)
+                AppLogger.info("ProcessingQueue", "Diarizing: ${recording.id}")
+
+                try {
+                    val speakerSegments = diarizationClient.diarize(
+                        audioFilePath = recording.filePath,
+                        serverUrl = settings.diarizationServerUrl
+                    )
+
+                    if (speakerSegments.isNotEmpty()) {
+                        diarizedTranscription = diarizationClient.alignSpeakers(transcription, speakerSegments)
+                        // Persist the updated transcription with speaker labels
+                        recordingsRepository.saveTranscription(diarizedTranscription)
+                        AppLogger.info(
+                            "ProcessingQueue",
+                            "Diarization complete for ${recording.id}: " +
+                                "${speakerSegments.map { it.speaker }.distinct().size} speakers identified"
+                        )
+                    } else {
+                        AppLogger.warn("ProcessingQueue", "Diarization returned no segments for ${recording.id}")
+                    }
+                } catch (e: Exception) {
+                    // Diarization failure is non-fatal — continue with unspeaker'd transcription
+                    AppLogger.warn("ProcessingQueue", "Diarization failed for ${recording.id}: ${e.message}")
+                }
+            }
+
+            // Step 3: Summarize
             updateStatus(item.recordingId, ProcessingStatus.SUMMARIZING)
             AppLogger.info("ProcessingQueue", "Summarizing: ${recording.id}")
 
-            val transcriptionForSummary = if (hasSpeakerLabels(transcription.segments)) {
-                transcription.copy(text = formatWithSpeakers(transcription.segments))
+            val transcriptionForSummary = if (hasSpeakerLabels(diarizedTranscription.segments)) {
+                diarizedTranscription.copy(text = formatWithSpeakers(diarizedTranscription.segments))
             } else {
-                transcription
+                diarizedTranscription
             }
 
             val summary = ollamaClient.summarize(

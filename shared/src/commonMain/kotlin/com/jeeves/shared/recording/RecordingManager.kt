@@ -1,6 +1,7 @@
 package com.jeeves.shared.recording
 
 import com.jeeves.shared.ai.AppLogger
+import com.jeeves.shared.ai.DiarizationClient
 import com.jeeves.shared.ai.GroqWhisperClient
 import com.jeeves.shared.ai.OllamaClient
 import com.jeeves.shared.ai.WhisperClient
@@ -48,7 +49,8 @@ class RecordingManager(
     private val recordingsRepository: RecordingsRepository,
     private val scope: CoroutineScope,
     private val streamingCallback: StreamingCallback? = null,
-    private val groqWhisperClient: GroqWhisperClient? = null
+    private val groqWhisperClient: GroqWhisperClient? = null,
+    private val diarizationClient: DiarizationClient? = null
 ) {
     private val _state = MutableStateFlow(RecordingState.IDLE)
     val state: StateFlow<RecordingState> = _state.asStateFlow()
@@ -69,7 +71,8 @@ class RecordingManager(
         settingsRepository = settingsRepository,
         recordingsRepository = recordingsRepository,
         scope = scope,
-        groqClient = groqWhisperClient
+        groqClient = groqWhisperClient,
+        diarizationClient = diarizationClient
     )
 
     private var recordingStartTime: Long = 0

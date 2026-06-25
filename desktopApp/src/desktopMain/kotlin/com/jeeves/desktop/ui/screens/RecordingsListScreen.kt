@@ -623,6 +623,11 @@ private fun ProcessingStatusIcon(item: com.jeeves.shared.recording.ProcessingIte
             MaterialTheme.colorScheme.primary,
             "Transcribing"
         )
+        com.jeeves.shared.recording.ProcessingStatus.DIARIZING -> Triple(
+            Icons.Filled.People,
+            MaterialTheme.colorScheme.primary,
+            "Identifying speakers"
+        )
         com.jeeves.shared.recording.ProcessingStatus.SUMMARIZING -> Triple(
             Icons.Filled.AutoAwesome,
             MaterialTheme.colorScheme.secondary,
@@ -641,6 +646,7 @@ private fun ProcessingStatusIcon(item: com.jeeves.shared.recording.ProcessingIte
     }
 
     if (item.status == com.jeeves.shared.recording.ProcessingStatus.TRANSCRIBING ||
+        item.status == com.jeeves.shared.recording.ProcessingStatus.DIARIZING ||
         item.status == com.jeeves.shared.recording.ProcessingStatus.SUMMARIZING) {
         CircularProgressIndicator(
             modifier = Modifier.size(16.dp).padding(end = 4.dp),
