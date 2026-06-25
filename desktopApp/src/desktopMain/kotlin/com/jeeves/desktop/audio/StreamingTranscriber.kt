@@ -42,6 +42,14 @@ class StreamingTranscriber(
     private val _isTranscribing = MutableStateFlow(false)
     val isTranscribing: StateFlow<Boolean> = _isTranscribing.asStateFlow()
 
+    /**
+     * Short status message displayed in the transcription panel.
+     * Null = no special message (show normal transcript/placeholder).
+     * Non-null = a status note (e.g. "Whisper server busy, retrying…").
+     */
+    private val _serverStatus = MutableStateFlow<String?>(null)
+    val serverStatus: StateFlow<String?> = _serverStatus.asStateFlow()
+
     /** Coroutine job managing the streaming loop. */
     private var streamingJob: Job? = null
 
@@ -204,13 +212,14 @@ class StreamingTranscriber(
     /**
      * Sends a WAV audio chunk to the whisper server for transcription.
      * Returns the transcribed text on success, or null on failure/timeout.
-     * Applies a 30-second timeout per request.
+     * Uses an 8-second timeout — if the server is busy we skip the chunk rather
+     * than block the streaming loop for half a minute.
      */
     suspend fun sendChunkForTranscription(wavData: ByteArray, config: AiEndpointConfig): String? {
         return try {
             _isTranscribing.value = true
 
-            val result = withTimeoutOrNull(30_000L) {
+            val result = withTimeoutOrNull(8_000L) {
                 val endpoints = listOf(
                     "${config.baseUrl}/v1/audio/inference",
                     "${config.baseUrl}/inference"
@@ -270,7 +279,8 @@ class StreamingTranscriber(
 
     /**
      * Begin streaming transcription for a recording session.
-     * Performs a connectivity check, then launches periodic chunk extraction.
+     * Performs a best-effort connectivity check (failure does NOT abort streaming —
+     * we try to send chunks anyway and skip those that time out while the server is busy).
      * Returns immediately; work happens in a child coroutine scope.
      */
     fun startStreaming(
@@ -278,8 +288,9 @@ class StreamingTranscriber(
         settings: AppSettings,
         parentScope: CoroutineScope
     ) {
-        // Reset live transcript for the new session
+        // Reset live transcript and status for the new session
         _liveTranscript.value = ""
+        _serverStatus.value = null
 
         // No-op if streaming is disabled
         if (!settings.streamingEnabled) return
@@ -293,20 +304,29 @@ class StreamingTranscriber(
         )
         currentSession = session
 
+        // Choose the right endpoint: dedicated streaming endpoint if configured, else fall back to main
+        val streamingEndpoint = settings.streamingTranscriptionEndpoint ?: settings.transcriptionEndpoint
+
         // Launch the streaming loop as a child job
         streamingJob = parentScope.launch {
-            // Check server connectivity before starting the loop
-            if (!checkServerConnectivity(settings.transcriptionEndpoint.baseUrl)) {
-                AppLogger.warn("StreamingTranscriber", "Whisper server unreachable at ${settings.transcriptionEndpoint.baseUrl}, disabling streaming for this session")
-                return@launch
+            // Best-effort connectivity check — just warn, don't abort
+            val serverReachable = checkServerConnectivity(streamingEndpoint.baseUrl)
+            if (!serverReachable) {
+                AppLogger.warn(
+                    "StreamingTranscriber",
+                    "Whisper server health check failed at ${streamingEndpoint.baseUrl} — will try chunks anyway"
+                )
+                _serverStatus.value = "Connecting to transcription server…"
             }
 
-            AppLogger.info("StreamingTranscriber", "Streaming transcription started")
+            AppLogger.info("StreamingTranscriber", "Streaming transcription started (endpoint: ${streamingEndpoint.baseUrl})")
+
+            var consecutiveFailures = 0
 
             while (isActive) {
                 delay(session.chunkIntervalSeconds * 1000L)
 
-                // If recording is paused (isRecording becomes false while session is active means cancelled)
+                // If recorder stopped (not just paused), the loop will be cancelled externally
                 if (!audioRecorder.isRecording.value) {
                     continue
                 }
@@ -334,12 +354,22 @@ class StreamingTranscriber(
                     bitsPerSample = session.bitsPerSample
                 )
 
-                // Send for transcription (sequential — waits for response)
-                val result = sendChunkForTranscription(wavPayload, settings.transcriptionEndpoint)
+                // Send for transcription — if server is busy the 8s timeout fires and we skip
+                val result = sendChunkForTranscription(wavPayload, streamingEndpoint)
 
-                // If result is non-null and non-blank, deduplicate and append
                 if (!result.isNullOrBlank()) {
+                    consecutiveFailures = 0
+                    _serverStatus.value = null  // Clear any "busy" message once we get a result
                     _liveTranscript.value = deduplicateAndAppend(_liveTranscript.value, result)
+                } else {
+                    consecutiveFailures++
+                    // After 2 failures show a note, after 5 escalate the message
+                    _serverStatus.value = when {
+                        consecutiveFailures >= 5 -> "Transcription server busy — audio buffered, will catch up…"
+                        consecutiveFailures >= 2 -> "Connecting to transcription server…"
+                        else -> _serverStatus.value // keep existing message
+                    }
+                    AppLogger.warn("StreamingTranscriber", "Chunk $consecutiveFailures missed (server busy or timeout)")
                 }
             }
         }
@@ -356,5 +386,6 @@ class StreamingTranscriber(
         currentSession?.previousChunkTail = ByteArray(0)
         currentSession = null
         _isTranscribing.value = false
+        _serverStatus.value = null
     }
 }

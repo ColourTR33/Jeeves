@@ -478,6 +478,77 @@ fun SettingsScreen() {
                             modifier = Modifier.padding(start = 16.dp, top = 4.dp)
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Divider()
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // --- Dedicated streaming endpoint (optional) ---
+                    Text("Dedicated Streaming Server (optional)", style = MaterialTheme.typography.titleSmall)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Run a second whisper-server instance on a different port so live transcription " +
+                            "chunks don't compete with post-recording full-file transcription. " +
+                            "Leave blank to share the main Transcription endpoint above.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val hasStreamingEndpoint = settings.streamingTranscriptionEndpoint != null
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Use separate streaming server")
+                        Switch(
+                            checked = hasStreamingEndpoint,
+                            onCheckedChange = { enable ->
+                                settings = if (enable) {
+                                    // Pre-fill with main endpoint URL but bump port by 1 as a hint
+                                    val mainUrl = settings.transcriptionEndpoint.baseUrl
+                                    val suggestedUrl = mainUrl.replace(Regex(":(\\d+)$")) { mr ->
+                                        ":${(mr.groupValues[1].toIntOrNull() ?: 8178) + 1}"
+                                    }
+                                    settings.copy(
+                                        streamingTranscriptionEndpoint = AiEndpointConfig(
+                                            name = "Streaming Whisper",
+                                            baseUrl = suggestedUrl,
+                                            modelName = settings.transcriptionEndpoint.modelName,
+                                            type = AiEndpointType.WHISPER_TRANSCRIPTION
+                                        )
+                                    )
+                                } else {
+                                    settings.copy(streamingTranscriptionEndpoint = null)
+                                }
+                                isSaved = false
+                            }
+                        )
+                    }
+
+                    if (hasStreamingEndpoint) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = settings.streamingTranscriptionEndpoint!!.baseUrl,
+                            onValueChange = { url ->
+                                settings = settings.copy(
+                                    streamingTranscriptionEndpoint = settings.streamingTranscriptionEndpoint!!.copy(baseUrl = url)
+                                )
+                                isSaved = false
+                            },
+                            label = { Text("Streaming Server URL") },
+                            placeholder = { Text("http://localhost:8179") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Start a second instance: ./server -m models/ggml-small.bin -p 8179",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         }

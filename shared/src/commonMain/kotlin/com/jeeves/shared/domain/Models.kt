@@ -177,5 +177,13 @@ data class AppSettings(
     val obsidianVaultPath: String = "",
     val audioSource: AudioSource = AudioSource.DEFAULT_MICROPHONE,
     val audioDeviceName: String = "",  // Name of the specific audio input device (e.g., "BlackHole 2ch")
-    val captureSystemAudio: Boolean = false  // When true, also records system audio (other people on calls)
+    val captureSystemAudio: Boolean = false,  // When true, also records system audio (other people on calls)
+    /**
+     * Optional dedicated Whisper endpoint used only for streaming (live) transcription.
+     * When set, streaming chunks are sent here instead of [transcriptionEndpoint], so a
+     * second whisper-server instance can handle live chunks without competing with the
+     * full-file transcription of the previous recording.
+     * Null (default) = share the main [transcriptionEndpoint] for both purposes.
+     */
+    val streamingTranscriptionEndpoint: AiEndpointConfig? = null
 )

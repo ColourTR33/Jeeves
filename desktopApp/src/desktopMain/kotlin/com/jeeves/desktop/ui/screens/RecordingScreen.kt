@@ -50,6 +50,7 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
     // Streaming transcription state
     val liveTranscript by appState.streamingTranscriber.liveTranscript.collectAsState()
     val isTranscribing by appState.streamingTranscriber.isTranscribing.collectAsState()
+    val serverStatus by appState.streamingTranscriber.serverStatus.collectAsState()
 
     // Timer display
     var elapsedSeconds by remember { mutableStateOf(0L) }
@@ -230,7 +231,8 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
             LiveTranscriptSection(
                 liveTranscript = liveTranscript,
                 isTranscribing = isTranscribing,
-                isRecording = recordingState == RecordingState.RECORDING
+                isRecording = recordingState == RecordingState.RECORDING,
+                serverStatus = serverStatus
             )
             Spacer(modifier = Modifier.height(16.dp))
         }
@@ -429,12 +431,14 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
 /**
  * Live transcript section: scrollable container with auto-scroll,
  * in-flight indicator, and placeholder text.
+ * [serverStatus] shows a transient note when the Whisper server is busy/connecting.
  */
 @Composable
 private fun LiveTranscriptSection(
     liveTranscript: String,
     isTranscribing: Boolean,
-    isRecording: Boolean
+    isRecording: Boolean,
+    serverStatus: String? = null
 ) {
     val scrollState = rememberScrollState()
     // Track whether user has scrolled away from the bottom
@@ -466,12 +470,16 @@ private fun LiveTranscriptSection(
                 .padding(12.dp)
         ) {
             if (liveTranscript.isEmpty()) {
-                // Task 6.2: Placeholder when recording but no transcript yet
-                if (isRecording) {
+                // Show server status if available, otherwise the normal "Listening" placeholder
+                val placeholderText = serverStatus ?: if (isRecording) "Listening for speech\u2026" else ""
+                if (placeholderText.isNotEmpty()) {
                     Text(
-                        text = "Listening for speech\u2026",
+                        text = placeholderText,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        color = if (serverStatus != null)
+                            MaterialTheme.colorScheme.secondary
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center
                     )
@@ -489,9 +497,20 @@ private fun LiveTranscriptSection(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
+                // Show status note below the text when server is catching up
+                if (serverStatus != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = serverStatus,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.End
+                    )
+                }
             }
 
-            // Task 6.2: In-flight indicator when transcribing
+            // In-flight indicator when transcribing
             if (isTranscribing) {
                 Spacer(modifier = Modifier.height(4.dp))
                 PulsingTranscribingIndicator()

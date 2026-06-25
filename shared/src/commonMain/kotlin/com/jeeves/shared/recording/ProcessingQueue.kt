@@ -143,14 +143,17 @@ class ProcessingQueue(
             updateStatus(item.recordingId, ProcessingStatus.TRANSCRIBING)
             AppLogger.info("ProcessingQueue", "Transcribing: ${recording.id} (${recording.filePath})")
 
-            val useStreaming = !item.streamingTranscript.isNullOrBlank() &&
-                recording.durationMs > 120_000
+            // Use streaming transcript if it captured at least 200 chars of content.
+            // This avoids a full-file Whisper pass (freeing the server sooner) whenever
+            // the live transcript has meaningful coverage — regardless of recording length.
+            val streamingText = item.streamingTranscript
+            val useStreaming = !streamingText.isNullOrBlank() && streamingText.length >= 200
 
             val transcription = if (useStreaming) {
-                AppLogger.info("ProcessingQueue", "Using streaming transcript (${item.streamingTranscript!!.length} chars)")
+                AppLogger.info("ProcessingQueue", "Using streaming transcript (${streamingText.orEmpty().length} chars)")
                 TranscriptionResult(
                     recordingId = recording.id,
-                    text = item.streamingTranscript,
+                    text = streamingText.orEmpty(),
                     segments = emptyList(),
                     language = "en",
                     durationMs = recording.durationMs
