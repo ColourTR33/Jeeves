@@ -65,6 +65,10 @@ class DesktopAudioRecorder : AudioRecorder {
 
     private val systemCapture = SystemAudioCapture()
 
+    /** Expose system audio capture status for the UI. */
+    val systemCaptureStatus: StateFlow<SystemCaptureStatus> = systemCapture.status
+    val systemCaptureDetail: StateFlow<String?> = systemCapture.statusDetail
+
     /**
      * Returns a list of available audio input devices that support 16kHz 16-bit capture.
      * Useful for letting the user select a specific input (e.g., BlackHole for system audio).

@@ -52,6 +52,10 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
     val isTranscribing by appState.streamingTranscriber.isTranscribing.collectAsState()
     val serverStatus by appState.streamingTranscriber.serverStatus.collectAsState()
 
+    // System audio capture status
+    val systemCaptureStatus by appState.audioRecorder.systemCaptureStatus.collectAsState()
+    val systemCaptureDetail by appState.audioRecorder.systemCaptureDetail.collectAsState()
+
     // Timer display
     var elapsedSeconds by remember { mutableStateOf(0L) }
 
@@ -152,6 +156,27 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                     .fillMaxWidth(0.5f)
                     .height(40.dp)
             )
+
+            // System audio capture status indicator
+            if (systemCaptureStatus != com.jeeves.desktop.audio.SystemCaptureStatus.INACTIVE) {
+                Spacer(modifier = Modifier.height(6.dp))
+                val (icon, color, text) = when (systemCaptureStatus) {
+                    com.jeeves.desktop.audio.SystemCaptureStatus.CAPTURING ->
+                        Triple("🔊", MaterialTheme.colorScheme.primary, systemCaptureDetail ?: "System audio active")
+                    com.jeeves.desktop.audio.SystemCaptureStatus.FAILED ->
+                        Triple("⚠️", MaterialTheme.colorScheme.error, systemCaptureDetail ?: "System audio capture failed")
+                    com.jeeves.desktop.audio.SystemCaptureStatus.UNAVAILABLE ->
+                        Triple("⚠️", MaterialTheme.colorScheme.error, systemCaptureDetail ?: "No loopback device found")
+                    else ->
+                        Triple("🔇", MaterialTheme.colorScheme.onSurfaceVariant, "System audio off")
+                }
+                Text(
+                    text = "$icon $text",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = color
+                )
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
 
