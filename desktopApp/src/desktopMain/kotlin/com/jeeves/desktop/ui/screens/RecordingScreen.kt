@@ -90,6 +90,7 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                 appState.recordingManager.pendingTitle = ""
                 appState.recordingManager.pendingDescription = ""
                 appState.recordingManager.pendingAttachments = emptyList()
+                appState.recordingManager.pendingProjectId = ""
             } else {
                 // Re-entering tab while recording — restore from pending fields
                 meetingTitle = appState.recordingManager.pendingTitle
@@ -195,6 +196,65 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                     )
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
+                        // Project picker for timesheet integration
+                        val timeProjects by appState.timeManager.projects.collectAsState()
+                        var selectedProjectId by remember { mutableStateOf(appState.recordingManager.pendingProjectId) }
+                        var projectExpanded by remember { mutableStateOf(false) }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ExposedDropdownMenuBox(
+                                expanded = projectExpanded,
+                                onExpandedChange = { projectExpanded = it },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                OutlinedTextField(
+                                    value = timeProjects.find { it.id == selectedProjectId }?.name ?: "",
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Project (for timesheet)") },
+                                    modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyMedium,
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(projectExpanded) }
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = projectExpanded,
+                                    onDismissRequest = { projectExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("None (don't log time)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                        onClick = {
+                                            selectedProjectId = ""
+                                            appState.recordingManager.pendingProjectId = ""
+                                            projectExpanded = false
+                                        }
+                                    )
+                                    timeProjects.forEach { project ->
+                                        DropdownMenuItem(
+                                            text = { Text(project.name) },
+                                            onClick = {
+                                                selectedProjectId = project.id
+                                                appState.recordingManager.pendingProjectId = project.id
+                                                projectExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (selectedProjectId.isNotBlank()) {
+                            Text(
+                                "Meeting time + 10 min handoff will be logged to this project",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
                             value = meetingTitle,
                             onValueChange = {

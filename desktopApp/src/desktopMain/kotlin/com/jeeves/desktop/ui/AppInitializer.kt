@@ -110,6 +110,19 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             diarizationClient = com.jeeves.shared.ai.DiarizationClient(httpClient)
         )
 
+        // Wire recording → timesheet integration: auto-log meeting time (+10 min handoff)
+        recordingManager.onRecordingSaved = { recording, projectId ->
+            val meetingDurationWithHandoff = recording.durationMs + 600_000L  // +10 min
+            val date = com.jeeves.shared.time.TimeTrackingManager.epochToDateString(recording.createdAt)
+            timeManager.logMeetingTime(
+                projectId = projectId,
+                recordingId = recording.id,
+                title = recording.title,
+                durationMs = meetingDurationWithHandoff,
+                date = date
+            )
+        }
+
         val callDetector = com.jeeves.desktop.audio.CallDetector(scope)
         callDetector.start()
 

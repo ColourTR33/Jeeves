@@ -73,6 +73,28 @@ class FileTimeTrackingRepository : TimeTrackingRepository {
         settingsFile.writeText(json.encodeToString(TimeReminderSettings.serializer(), settings))
     }
 
+    // Weekly planning
+    private val plansFile get() = File(timeDir, "weekly_plans.json")
+
+    override suspend fun getWeeklyPlan(weekStartDate: String): WeeklyPlan? {
+        return getAllWeeklyPlans().find { it.weekStartDate == weekStartDate }
+    }
+
+    override suspend fun saveWeeklyPlan(plan: WeeklyPlan) {
+        val plans = getAllWeeklyPlans().toMutableList()
+        val i = plans.indexOfFirst { it.weekStartDate == plan.weekStartDate }
+        if (i >= 0) plans[i] = plan else plans.add(plan)
+        plansFile.writeText(json.encodeToString(WPList.serializer(), WPList(plans)))
+    }
+
+    override suspend fun deleteWeeklyPlan(weekStartDate: String) {
+        val plans = getAllWeeklyPlans().filter { it.weekStartDate != weekStartDate }
+        plansFile.writeText(json.encodeToString(WPList.serializer(), WPList(plans)))
+    }
+
+    override suspend fun getAllWeeklyPlans(): List<WeeklyPlan> =
+        readList(plansFile) { json.decodeFromString<WPList>(it).items }
+
     private fun <T> readList(file: File, parse: (String) -> List<T>): List<T> = try { if (file.exists()) parse(file.readText()) else emptyList() } catch (_: Exception) { emptyList() }
 
     private fun addDay(d: String): String {
@@ -88,3 +110,4 @@ class FileTimeTrackingRepository : TimeTrackingRepository {
 @Serializable data class PList(val items: List<Project>)
 @Serializable data class CList(val items: List<Client>)
 @Serializable data class EList(val items: List<TimeEntry>)
+@Serializable data class WPList(val items: List<WeeklyPlan>)

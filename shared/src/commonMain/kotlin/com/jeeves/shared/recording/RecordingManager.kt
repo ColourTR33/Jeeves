@@ -50,7 +50,9 @@ class RecordingManager(
     private val scope: CoroutineScope,
     private val streamingCallback: StreamingCallback? = null,
     private val groqWhisperClient: GroqWhisperClient? = null,
-    private val diarizationClient: DiarizationClient? = null
+    private val diarizationClient: DiarizationClient? = null,
+    /** Called after a recording is saved — used to auto-log time to the timesheet. */
+    var onRecordingSaved: ((Recording, String) -> Unit)? = null  // (recording, projectId) -> Unit
 ) {
     private val _state = MutableStateFlow(RecordingState.IDLE)
     val state: StateFlow<RecordingState> = _state.asStateFlow()
@@ -81,6 +83,8 @@ class RecordingManager(
     var pendingTitle: String = ""
     var pendingDescription: String = ""
     var pendingAttachments: List<Attachment> = emptyList()
+    /** Project ID selected during recording — used to auto-log time on stop. */
+    var pendingProjectId: String = ""
 
     /**
      * Toggle recording on/off. Called by hotkey or button press.
@@ -155,9 +159,18 @@ class RecordingManager(
             _currentRecording.value = recording
             recordingsRepository.saveRecording(recording)
 
+            // Auto-log time to timesheet if a project was selected (+10 min handoff buffer)
+            if (pendingProjectId.isNotBlank()) {
+                val meetingDurationWithHandoff = duration + 600_000L  // +10 minutes
+                onRecordingSaved?.invoke(recording, pendingProjectId)
+                // Use the callback's external handler (wired in AppInitializer)
+                // which calls timeManager.logMeetingTime with the handoff duration
+            }
+
             // Enqueue for async processing — returns immediately
             processingQueue.enqueue(recording, streamingTranscript = streamingText)
             _state.value = RecordingState.IDLE
+            pendingProjectId = ""
 
             AppLogger.info("RecordingManager", "Recording saved and enqueued: ${recording.id}")
         } catch (e: Exception) {

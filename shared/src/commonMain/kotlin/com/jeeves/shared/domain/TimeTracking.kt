@@ -15,7 +15,9 @@ data class Project(
     val clientId: String? = null,
     val isBillable: Boolean = true,
     val isDistributed: Boolean = false,
-    val color: String = "#4A90D9"
+    val color: String = "#4A90D9",
+    /** Default weekly target hours for this project (used when no specific plan is set). */
+    val defaultTargetHours: Double = 0.0
 )
 
 @Serializable
@@ -50,7 +52,7 @@ data class WeeklyTimesheet(
     val rows: List<TimesheetRow>,
     val dailyTotals: Map<String, Double>,
     val grandTotal: Double,
-    val targetHours: Double = 37.5
+    val targetHours: Double = 40.0
 )
 
 data class DistributionPreview(
@@ -73,7 +75,58 @@ data class TimeReminderSettings(
     val quietHoursStart: Int = 18,
     val quietHoursEnd: Int = 8,
     val enabled: Boolean = true,
-    val targetWeeklyHours: Double = 37.5
+    val targetWeeklyHours: Double = 40.0
+)
+
+/**
+ * Per-project target hours for a specific week.
+ * The sum of all project targets for a week should equal [TimeReminderSettings.targetWeeklyHours] (40h).
+ */
+@Serializable
+data class ProjectWeeklyTarget(
+    val projectId: String,
+    val targetHours: Double
+)
+
+/**
+ * A weekly plan: the set of per-project target hours for a given week.
+ * weekStartDate is always a Monday (ISO format YYYY-MM-DD).
+ */
+@Serializable
+data class WeeklyPlan(
+    val weekStartDate: String,
+    val targets: List<ProjectWeeklyTarget>,
+    val totalTargetHours: Double = 40.0
+)
+
+/**
+ * Burndown data for a single project within a week.
+ * Shows target vs actual for each day (Mon-Fri), plus remaining.
+ */
+data class ProjectBurndown(
+    val project: Project,
+    val targetHours: Double,
+    val actualHours: Double,
+    val remainingHours: Double,
+    /** Cumulative actual hours per day: Map<date, cumulativeHours> */
+    val dailyCumulative: Map<String, Double>,
+    /** Ideal burndown line per day (evenly distributed target) */
+    val dailyIdeal: Map<String, Double>
+)
+
+/**
+ * Overall burndown for the week (all projects combined).
+ */
+data class WeeklyBurndown(
+    val weekStartDate: String,
+    val totalTarget: Double,
+    val totalActual: Double,
+    val totalRemaining: Double,
+    val projectBurndowns: List<ProjectBurndown>,
+    /** Cumulative total hours per day */
+    val dailyCumulativeTotal: Map<String, Double>,
+    /** Ideal total burndown per day */
+    val dailyIdealTotal: Map<String, Double>
 )
 
 interface TimeTrackingRepository {
@@ -90,4 +143,11 @@ interface TimeTrackingRepository {
     suspend fun deleteTimeEntry(id: String)
     suspend fun getReminderSettings(): TimeReminderSettings
     suspend fun saveReminderSettings(settings: TimeReminderSettings)
+
+    // Weekly planning
+    suspend fun getWeeklyPlan(weekStartDate: String): WeeklyPlan?
+    suspend fun saveWeeklyPlan(plan: WeeklyPlan)
+    suspend fun deleteWeeklyPlan(weekStartDate: String)
+    /** Get all weekly plans (for forward planning view). */
+    suspend fun getAllWeeklyPlans(): List<WeeklyPlan>
 }

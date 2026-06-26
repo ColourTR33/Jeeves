@@ -1,6 +1,8 @@
 package com.jeeves.desktop.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,7 +15,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jeeves.shared.domain.*
@@ -34,19 +40,37 @@ fun TimeTrackingScreen() {
     val todayEntries by appState.timeManager.todayEntries.collectAsState()
     val reminder by appState.reminderService.pendingReminder.collectAsState()
 
+    // Week navigation state
+    var weekOffset by remember { mutableStateOf(0) } // 0 = current, -1 = last week, +1 = next week, etc.
+    var currentWeekDate by remember { mutableStateOf(TimeTrackingManager.epochToDateString(System.currentTimeMillis())) }
+
     var weeklyTimesheet by remember { mutableStateOf<WeeklyTimesheet?>(null) }
+    var weeklyBurndown by remember { mutableStateOf<WeeklyBurndown?>(null) }
+    var weeklyPlan by remember { mutableStateOf<WeeklyPlan?>(null) }
     var showAddProject by remember { mutableStateOf(false) }
     var showDistribution by remember { mutableStateOf(false) }
+    var showPlanEditor by remember { mutableStateOf(false) }
     var distributionPreview by remember { mutableStateOf<List<DistributionPreview>>(emptyList()) }
     var timerTick by remember { mutableStateOf(0L) }
+
+    // Tab state: Timesheet | Burndown | Plan
+    var selectedTab by remember { mutableStateOf(0) }
 
     LaunchedEffect(currentEntry) {
         while (isActive && currentEntry?.isRunning == true) { delay(1000); timerTick = System.currentTimeMillis() }
     }
 
-    LaunchedEffect(todayEntries) {
+    // Refresh data when week changes or entries change
+    LaunchedEffect(weekOffset, todayEntries) {
         val today = TimeTrackingManager.epochToDateString(System.currentTimeMillis())
-        weeklyTimesheet = appState.timeManager.getWeeklyTimesheet(today)
+        currentWeekDate = if (weekOffset == 0) today else {
+            // Navigate by weekOffset * 7 days
+            val baseEpoch = System.currentTimeMillis() + (weekOffset.toLong() * 7 * 86_400_000)
+            TimeTrackingManager.epochToDateString(baseEpoch)
+        }
+        weeklyTimesheet = appState.timeManager.getWeeklyTimesheet(currentWeekDate)
+        weeklyBurndown = appState.timeManager.getWeeklyBurndown(currentWeekDate)
+        weeklyPlan = appState.timeManager.getWeeklyPlan(currentWeekDate)
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
@@ -76,61 +100,46 @@ fun TimeTrackingScreen() {
             onAddProject = { showAddProject = true }
         )
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
 
-        Row(Modifier.weight(1f)) {
-            // Timesheet
-            Column(Modifier.weight(0.6f)) {
-                Text("Weekly Timesheet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                weeklyTimesheet?.let { ts ->
-                    TimesheetGrid(ts)
-                    Spacer(Modifier.height(12.dp))
-                    val progress = (ts.grandTotal / ts.targetHours).toFloat().coerceIn(0f, 1f)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        LinearProgressIndicator(progress = progress, modifier = Modifier.weight(1f).height(8.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("${String.format("%.1f", ts.grandTotal)} / ${String.format("%.0f", ts.targetHours)}h", style = MaterialTheme.typography.labelSmall)
-                    }
-                } ?: Text("No entries this week", color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        scope.launch {
-                            val csv = appState.timeManager.exportCsv(TimeTrackingManager.epochToDateString(System.currentTimeMillis()))
-                            val f = java.io.File(System.getProperty("user.home"), "Jeeves/timesheet_export.csv")
-                            f.writeText(csv)
-                            java.awt.Desktop.getDesktop().open(f)
-                        }
-                    }) { Icon(Icons.Filled.Share, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Export CSV") }
-
-                    OutlinedButton(onClick = {
-                        scope.launch {
-                            distributionPreview = appState.timeManager.previewDistribution(TimeTrackingManager.epochToDateString(System.currentTimeMillis()))
-                            showDistribution = distributionPreview.isNotEmpty()
-                        }
-                    }) { Icon(Icons.Filled.SwapHoriz, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Distribute Admin Time") }
+        // Week navigation
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { weekOffset-- }) { Icon(Icons.Filled.ChevronLeft, "Previous week") }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = weeklyTimesheet?.let { "Week: ${it.weekStartDate} → ${it.weekEndDate}" } ?: "Loading...",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                if (weekOffset != 0) {
+                    TextButton(onClick = { weekOffset = 0 }) { Text("Today", style = MaterialTheme.typography.labelSmall) }
                 }
             }
+            IconButton(onClick = { if (weekOffset < 4) weekOffset++ }) { Icon(Icons.Filled.ChevronRight, "Next week") }
+        }
 
-            Spacer(Modifier.width(20.dp))
+        Spacer(Modifier.height(8.dp))
 
-            // Today
-            Column(Modifier.weight(0.4f)) {
-                Text("Today", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                if (todayEntries.isEmpty()) {
-                    Text("No entries today", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    LazyColumn {
-                        items(todayEntries) { entry ->
-                            val proj = projects.find { it.id == entry.projectId }
-                            TodayItem(entry, proj) { appState.timeManager.deleteEntry(entry.id) }
-                        }
-                    }
-                }
-            }
+        // Tabs: Timesheet | Burndown | Plan
+        TabRow(selectedTabIndex = selectedTab) {
+            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Timesheet") })
+            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Burndown") })
+            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Plan") })
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // Tab content
+        when (selectedTab) {
+            0 -> TimesheetTab(weeklyTimesheet, scope, appState, currentWeekDate, distributionPreview, showDistribution,
+                onShowDistribution = { preview, show -> distributionPreview = preview; showDistribution = show })
+            1 -> BurndownTab(weeklyBurndown, projects)
+            2 -> PlanTab(weeklyPlan, projects, scope, appState, currentWeekDate, weekOffset,
+                onPlanSaved = { scope.launch { weeklyPlan = appState.timeManager.getWeeklyPlan(currentWeekDate) } })
         }
     }
 
@@ -152,6 +161,422 @@ fun TimeTrackingScreen() {
         confirmButton = { TextButton(onClick = { showDistribution = false }) { Text("Close") } }
     )
 }
+
+// ─── Timesheet Tab ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun TimesheetTab(
+    weeklyTimesheet: WeeklyTimesheet?,
+    scope: kotlinx.coroutines.CoroutineScope,
+    appState: AppState,
+    currentWeekDate: String,
+    distributionPreview: List<DistributionPreview>,
+    showDistribution: Boolean,
+    onShowDistribution: (List<DistributionPreview>, Boolean) -> Unit
+) {
+    // Click-through detail state
+    var selectedProjectId by remember { mutableStateOf<String?>(null) }
+    var projectEntries by remember { mutableStateOf<List<TimeEntry>>(emptyList()) }
+
+    // Load entries when a project row is clicked
+    LaunchedEffect(selectedProjectId) {
+        if (selectedProjectId != null) {
+            projectEntries = appState.timeManager.getProjectEntriesForWeek(selectedProjectId!!, currentWeekDate)
+        }
+    }
+    Row(Modifier.fillMaxSize()) {
+        Column(Modifier.weight(0.6f)) {
+            weeklyTimesheet?.let { ts ->
+                TimesheetGrid(ts, onRowClick = { projectId -> selectedProjectId = projectId })
+                Spacer(Modifier.height(12.dp))
+                val progress = (ts.grandTotal / ts.targetHours).toFloat().coerceIn(0f, 1f)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LinearProgressIndicator(progress = progress, modifier = Modifier.weight(1f).height(8.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("${String.format("%.1f", ts.grandTotal)} / ${String.format("%.0f", ts.targetHours)}h", style = MaterialTheme.typography.labelSmall)
+                }
+            } ?: Text("No entries this week", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        val csv = appState.timeManager.exportCsv(currentWeekDate)
+                        val f = java.io.File(System.getProperty("user.home"), "Jeeves/timesheet_export.csv")
+                        f.writeText(csv)
+                        java.awt.Desktop.getDesktop().open(f)
+                    }
+                }) { Icon(Icons.Filled.Share, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Export CSV") }
+
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        val preview = appState.timeManager.previewDistribution(currentWeekDate)
+                        onShowDistribution(preview, preview.isNotEmpty())
+                    }
+                }) { Icon(Icons.Filled.SwapHoriz, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Distribute Admin") }
+
+                OutlinedButton(onClick = {
+                    scope.launch { appState.timeManager.autoDistributeAdminHours(currentWeekDate) }
+                }) { Icon(Icons.Filled.AutoFixHigh, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Auto-Fill Shortfall") }
+            }
+        }
+
+        Spacer(Modifier.width(20.dp))
+
+        // Today's entries
+        Column(Modifier.weight(0.4f)) {
+            val todayEntries by appState.timeManager.todayEntries.collectAsState()
+            Text("Today", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            val projects by appState.timeManager.projects.collectAsState()
+            if (todayEntries.isEmpty()) {
+                Text("No entries today", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                LazyColumn {
+                    items(todayEntries) { entry ->
+                        val proj = projects.find { it.id == entry.projectId }
+                        TodayItem(entry, proj) { appState.timeManager.deleteEntry(entry.id) }
+                    }
+                }
+            }
+        }
+    }
+
+    // Project detail dialog (click-through from timesheet row)
+    if (selectedProjectId != null) {
+        val selectedProject = weeklyTimesheet?.rows?.find { it.project.id == selectedProjectId }?.project
+        AlertDialog(
+            onDismissRequest = { selectedProjectId = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (selectedProject != null) {
+                        Box(Modifier.size(12.dp).clip(CircleShape).background(hexToColor(selectedProject.color)))
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text("${selectedProject?.name ?: "Project"} — This Week")
+                }
+            },
+            text = {
+                if (projectEntries.isEmpty()) {
+                    Text("No entries this week.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                        items(projectEntries.sortedBy { it.startTime }) { entry ->
+                            Card(
+                                Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            ) {
+                                Column(Modifier.padding(10.dp)) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(
+                                            entry.taskDescription.ifEmpty { "(no description)" },
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            fmtShort(entry.durationMs ?: 0),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Spacer(Modifier.height(2.dp))
+                                    Row {
+                                        Text(entry.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (entry.linkedRecordingId != null) {
+                                            Spacer(Modifier.width(8.dp))
+                                            Icon(Icons.Filled.Mic, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                                            Spacer(Modifier.width(2.dp))
+                                            Text("Linked recording", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { selectedProjectId = null }) { Text("Close") } }
+        )
+    }
+}
+
+// ─── Burndown Tab ───────────────────────────────────────────────────────────────
+
+@Composable
+private fun BurndownTab(weeklyBurndown: WeeklyBurndown?, projects: List<Project>) {
+    if (weeklyBurndown == null) {
+        Text("No burndown data available. Set project targets in the Plan tab.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        // Overall burndown summary
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Weekly Burndown (${String.format("%.0f", weeklyBurndown.totalTarget)}h target)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    BurndownStat("Logged", String.format("%.1f", weeklyBurndown.totalActual) + "h", MaterialTheme.colorScheme.primary)
+                    BurndownStat("Remaining", String.format("%.1f", weeklyBurndown.totalRemaining) + "h", MaterialTheme.colorScheme.tertiary)
+                    val pct = if (weeklyBurndown.totalTarget > 0) (weeklyBurndown.totalActual / weeklyBurndown.totalTarget * 100) else 0.0
+                    BurndownStat("Progress", String.format("%.0f", pct) + "%", MaterialTheme.colorScheme.secondary)
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // Simple burndown chart
+                BurndownChart(
+                    dailyCumulative = weeklyBurndown.dailyCumulativeTotal,
+                    dailyIdeal = weeklyBurndown.dailyIdealTotal,
+                    target = weeklyBurndown.totalTarget,
+                    modifier = Modifier.fillMaxWidth().height(160.dp)
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Per-project burndown rows
+        Text("By Project", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+
+        LazyColumn {
+            items(weeklyBurndown.projectBurndowns) { pb ->
+                ProjectBurndownRow(pb)
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun BurndownStat(label: String, value: String, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ProjectBurndownRow(pb: ProjectBurndown) {
+    val progress = if (pb.targetHours > 0) (pb.actualHours / pb.targetHours).toFloat().coerceIn(0f, 1.2f) else 0f
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(6.dp)) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).clip(CircleShape).background(hexToColor(pb.project.color)))
+            Spacer(Modifier.width(8.dp))
+            Text(pb.project.name, Modifier.width(120.dp), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1)
+            Spacer(Modifier.width(8.dp))
+            LinearProgressIndicator(
+                progress = progress.coerceAtMost(1f),
+                modifier = Modifier.weight(1f).height(6.dp),
+                color = if (progress > 1f) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("${String.format("%.1f", pb.actualHours)} / ${String.format("%.1f", pb.targetHours)}h",
+                style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(80.dp))
+        }
+    }
+}
+
+/**
+ * Simple line chart showing actual cumulative hours vs ideal burndown line.
+ */
+@Composable
+private fun BurndownChart(
+    dailyCumulative: Map<String, Double>,
+    dailyIdeal: Map<String, Double>,
+    target: Double,
+    modifier: Modifier = Modifier
+) {
+    val days = dailyCumulative.keys.sorted()
+    if (days.isEmpty()) return
+
+    val actualColor = Color(0xFF2196F3)
+    val idealColor = Color(0xFFFF9800)
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val maxY = target * 1.1f  // 10% headroom
+        val padding = 4f
+
+        val xStep = if (days.size > 1) (w - padding * 2) / (days.size - 1) else w
+        val yScale = (h - padding * 2) / maxY.toFloat()
+
+        // Draw ideal line (dashed)
+        val idealPath = Path()
+        days.forEachIndexed { i, day ->
+            val x = padding + i * xStep
+            val y = h - padding - ((dailyIdeal[day] ?: 0.0).toFloat() * yScale)
+            if (i == 0) idealPath.moveTo(x, y) else idealPath.lineTo(x, y)
+        }
+        drawPath(idealPath, idealColor.copy(alpha = 0.6f), style = Stroke(width = 2f))
+
+        // Draw actual line (solid)
+        val actualPath = Path()
+        days.forEachIndexed { i, day ->
+            val x = padding + i * xStep
+            val y = h - padding - ((dailyCumulative[day] ?: 0.0).toFloat() * yScale)
+            if (i == 0) actualPath.moveTo(x, y) else actualPath.lineTo(x, y)
+        }
+        drawPath(actualPath, actualColor, style = Stroke(width = 3f))
+
+        // Draw dots on actual
+        days.forEachIndexed { i, day ->
+            val x = padding + i * xStep
+            val y = h - padding - ((dailyCumulative[day] ?: 0.0).toFloat() * yScale)
+            drawCircle(actualColor, radius = 4f, center = Offset(x, y))
+        }
+
+        // Target line
+        val targetY = h - padding - (target.toFloat() * yScale)
+        drawLine(Color.Gray.copy(alpha = 0.4f), Offset(0f, targetY), Offset(w, targetY), strokeWidth = 1f)
+    }
+
+    // Legend
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Box(Modifier.size(10.dp, 3.dp).background(Color(0xFF2196F3)))
+        Spacer(Modifier.width(4.dp))
+        Text("Actual", style = MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.width(16.dp))
+        Box(Modifier.size(10.dp, 3.dp).background(Color(0xFFFF9800)))
+        Spacer(Modifier.width(4.dp))
+        Text("Ideal", style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+// ─── Plan Tab ───────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlanTab(
+    weeklyPlan: WeeklyPlan?,
+    projects: List<Project>,
+    scope: kotlinx.coroutines.CoroutineScope,
+    appState: AppState,
+    currentWeekDate: String,
+    weekOffset: Int,
+    onPlanSaved: () -> Unit
+) {
+    val billableProjects = projects.filter { !it.isDistributed }
+    var editTargets by remember(weeklyPlan) {
+        mutableStateOf(
+            billableProjects.associate { proj ->
+                proj.id to (weeklyPlan?.targets?.find { it.projectId == proj.id }?.targetHours ?: proj.defaultTargetHours)
+            }
+        )
+    }
+
+    val totalPlanned = editTargets.values.sum()
+    val totalTarget = weeklyPlan?.totalTargetHours ?: 40.0
+
+    Column(Modifier.fillMaxSize()) {
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Project Hour Targets", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${String.format("%.1f", totalPlanned)} / ${String.format("%.0f", totalTarget)}h planned",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (totalPlanned > totalTarget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+
+                billableProjects.forEach { project ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(hexToColor(project.color)))
+                        Spacer(Modifier.width(8.dp))
+                        Text(project.name, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = String.format("%.1f", editTargets[project.id] ?: 0.0),
+                            onValueChange = { text ->
+                                text.toDoubleOrNull()?.let { editTargets = editTargets + (project.id to it) }
+                            },
+                            modifier = Modifier.width(80.dp),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            suffix = { Text("h", style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        scope.launch {
+                            val targets = editTargets.filter { it.value > 0 }.map { (pid, hrs) -> ProjectWeeklyTarget(pid, hrs) }
+                            val plan = WeeklyPlan(
+                                weekStartDate = weeklyPlan?.weekStartDate ?: currentWeekDate,
+                                targets = targets,
+                                totalTargetHours = totalTarget
+                            )
+                            appState.timeManager.saveWeeklyPlan(plan)
+                            onPlanSaved()
+                        }
+                    }) { Text("Save Plan") }
+
+                    if (weekOffset <= 0) {
+                        // Only show "Copy to next weeks" for current or past weeks
+                        OutlinedButton(onClick = {
+                            scope.launch {
+                                val targets = editTargets.filter { it.value > 0 }.map { (pid, hrs) -> ProjectWeeklyTarget(pid, hrs) }
+                                // Copy plan to next 4 weeks
+                                for (i in 1..4) {
+                                    val futureEpoch = System.currentTimeMillis() + ((weekOffset + i).toLong() * 7 * 86_400_000)
+                                    val futureDate = TimeTrackingManager.epochToDateString(futureEpoch)
+                                    val plan = WeeklyPlan(weekStartDate = futureDate, targets = targets, totalTargetHours = totalTarget)
+                                    appState.timeManager.saveWeeklyPlan(plan)
+                                }
+                                onPlanSaved()
+                            }
+                        }) { Text("Copy to next 4 weeks") }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Forward planning overview (4 weeks)
+        Text("Forward Plan Overview", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        var allPlans by remember { mutableStateOf<List<WeeklyPlan>>(emptyList()) }
+        LaunchedEffect(weeklyPlan) { allPlans = appState.timeManager.getAllWeeklyPlans() }
+
+        if (allPlans.isEmpty()) {
+            Text("No forward plans set. Use the form above to plan project hours.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                Column(Modifier.padding(12.dp)) {
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("Week", Modifier.weight(1.5f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        billableProjects.take(5).forEach { p ->
+                            Text(p.name.take(8), Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
+                        Text("Total", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
+                    Divider(Modifier.padding(vertical = 4.dp))
+                    allPlans.sortedBy { it.weekStartDate }.takeLast(8).forEach { plan ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                            Text(plan.weekStartDate.substring(5), Modifier.weight(1.5f), style = MaterialTheme.typography.bodySmall)
+                            billableProjects.take(5).forEach { p ->
+                                val h = plan.targets.find { it.projectId == p.id }?.targetHours ?: 0.0
+                                Text(if (h > 0) String.format("%.0f", h) else "-", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            }
+                            Text(String.format("%.0f", plan.targets.sumOf { it.targetHours }), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Shared Components ──────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -200,7 +625,7 @@ private fun TimerBar(currentEntry: TimeEntry?, projects: List<Project>, timerTic
 }
 
 @Composable
-private fun TimesheetGrid(ts: WeeklyTimesheet) {
+private fun TimesheetGrid(ts: WeeklyTimesheet, onRowClick: (String) -> Unit = {}) {
     val dayNames = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
     val dates = buildList { var d = ts.weekStartDate; repeat(7) { add(d); d = addDay(d) } }
 
@@ -213,7 +638,12 @@ private fun TimesheetGrid(ts: WeeklyTimesheet) {
             }
             Divider(Modifier.padding(vertical = 4.dp))
             ts.rows.forEach { row ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { onRowClick(row.project.id) },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Row(Modifier.weight(2f), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(8.dp).clip(CircleShape).background(hexToColor(row.project.color)))
                         Spacer(Modifier.width(4.dp))

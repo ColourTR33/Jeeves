@@ -169,6 +169,206 @@ class TimeTrackingManager(
         scope.launch { repository.saveReminderSettings(settings); _reminderSettings.value = settings }
     }
 
+    // ───────────────────────────────────────────────────────────────────────────
+    // Weekly Planning & Burndown
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Save a weekly plan (per-project target hours for a given week).
+     * weekStartDate must be a Monday.
+     */
+    fun saveWeeklyPlan(plan: WeeklyPlan) {
+        scope.launch { repository.saveWeeklyPlan(plan) }
+    }
+
+    /**
+     * Get the weekly plan for the week containing [dateInWeek].
+     * Falls back to building a plan from project defaults if no explicit plan exists.
+     */
+    suspend fun getWeeklyPlan(dateInWeek: String): WeeklyPlan {
+        val (monday, _) = getWeekBounds(dateInWeek)
+        val explicit = repository.getWeeklyPlan(monday)
+        if (explicit != null) return explicit
+
+        // Build default plan from project defaultTargetHours
+        val projects = repository.getProjects()
+        val targets = projects
+            .filter { it.defaultTargetHours > 0 && !it.isDistributed }
+            .map { ProjectWeeklyTarget(it.id, it.defaultTargetHours) }
+        return WeeklyPlan(
+            weekStartDate = monday,
+            targets = targets,
+            totalTargetHours = _reminderSettings.value.targetWeeklyHours
+        )
+    }
+
+    /**
+     * Delete the explicit weekly plan for the given week. Reverts to defaults.
+     */
+    fun deleteWeeklyPlan(dateInWeek: String) {
+        scope.launch {
+            val (monday, _) = getWeekBounds(dateInWeek)
+            repository.deleteWeeklyPlan(monday)
+        }
+    }
+
+    /**
+     * Get all saved weekly plans (for the forward planning grid).
+     */
+    suspend fun getAllWeeklyPlans(): List<WeeklyPlan> = repository.getAllWeeklyPlans()
+
+    /**
+     * Calculate the burndown for the week containing [dateInWeek].
+     * Shows target vs actual per project and overall, with daily cumulative lines.
+     */
+    suspend fun getWeeklyBurndown(dateInWeek: String): WeeklyBurndown {
+        val (monday, sunday) = getWeekBounds(dateInWeek)
+        val entries = repository.getTimeEntries(monday, sunday)
+        val projects = repository.getProjects()
+        val projectMap = projects.associateBy { it.id }
+        val plan = getWeeklyPlan(dateInWeek)
+        val now = currentTimeMillis()
+
+        // Working days: Mon-Fri (first 5 days of the week)
+        val workDays = (0..4).map { addDays(monday, it) }
+
+        // Build per-project burndowns
+        val projectBurndowns = plan.targets.mapNotNull { target ->
+            val project = projectMap[target.projectId] ?: return@mapNotNull null
+            val projEntries = entries.filter { it.projectId == target.projectId }
+
+            // Daily cumulative actual hours
+            var cumulative = 0.0
+            val dailyCumulative = mutableMapOf<String, Double>()
+            for (day in workDays) {
+                val dayHours = projEntries
+                    .filter { it.date == day }
+                    .sumOf { it.effectiveHours(now) }
+                cumulative += dayHours
+                dailyCumulative[day] = cumulative
+            }
+
+            // Ideal burndown: evenly distributed target across 5 work days
+            val dailyIdeal = mutableMapOf<String, Double>()
+            val idealPerDay = target.targetHours / 5.0
+            for ((i, day) in workDays.withIndex()) {
+                dailyIdeal[day] = idealPerDay * (i + 1)
+            }
+
+            ProjectBurndown(
+                project = project,
+                targetHours = target.targetHours,
+                actualHours = cumulative,
+                remainingHours = (target.targetHours - cumulative).coerceAtLeast(0.0),
+                dailyCumulative = dailyCumulative,
+                dailyIdeal = dailyIdeal
+            )
+        }
+
+        // Overall totals
+        val totalTarget = plan.totalTargetHours
+        val dailyCumulativeTotal = mutableMapOf<String, Double>()
+        val dailyIdealTotal = mutableMapOf<String, Double>()
+        val idealPerDayTotal = totalTarget / 5.0
+
+        for ((i, day) in workDays.withIndex()) {
+            dailyCumulativeTotal[day] = projectBurndowns.sumOf { it.dailyCumulative[day] ?: 0.0 }
+            dailyIdealTotal[day] = idealPerDayTotal * (i + 1)
+        }
+
+        val totalActual = projectBurndowns.sumOf { it.actualHours }
+
+        return WeeklyBurndown(
+            weekStartDate = monday,
+            totalTarget = totalTarget,
+            totalActual = totalActual,
+            totalRemaining = (totalTarget - totalActual).coerceAtLeast(0.0),
+            projectBurndowns = projectBurndowns,
+            dailyCumulativeTotal = dailyCumulativeTotal,
+            dailyIdealTotal = dailyIdealTotal
+        )
+    }
+
+    /**
+     * Auto-distribute admin/distributed project hours to billable projects
+     * that are below their weekly target. Called on Friday (or manually).
+     *
+     * Logic: For each distributed project (e.g. "Admin", "Email"), take its total
+     * hours for the week and split them evenly across billable projects that still
+     * have remaining target hours. Creates new time entries attributed to those projects.
+     *
+     * Returns the list of new entries created (for undo/confirmation).
+     */
+    suspend fun autoDistributeAdminHours(dateInWeek: String): List<TimeEntry> {
+        val (monday, sunday) = getWeekBounds(dateInWeek)
+        val entries = repository.getTimeEntries(monday, sunday)
+        val projects = repository.getProjects()
+        val projectMap = projects.associateBy { it.id }
+        val plan = getWeeklyPlan(dateInWeek)
+        val now = currentTimeMillis()
+
+        // Find billable projects that are under target
+        val targetMap = plan.targets.associate { it.projectId to it.targetHours }
+        val billableShortfall = mutableMapOf<String, Double>() // projectId -> remaining hours
+
+        for (target in plan.targets) {
+            val project = projectMap[target.projectId] ?: continue
+            if (!project.isBillable || project.isDistributed) continue
+            val actual = entries.filter { it.projectId == target.projectId }.sumOf { it.effectiveHours(now) }
+            val remaining = target.targetHours - actual
+            if (remaining > 0.1) { // At least 6 minutes shortfall
+                billableShortfall[target.projectId] = remaining
+            }
+        }
+
+        if (billableShortfall.isEmpty()) return emptyList()
+
+        // Find distributed project hours to redistribute
+        val distributedProjects = projects.filter { it.isDistributed }
+        val totalDistributedHours = distributedProjects.sumOf { dp ->
+            entries.filter { it.projectId == dp.id }.sumOf { it.effectiveHours(now) }
+        }
+
+        if (totalDistributedHours < 0.1) return emptyList()
+
+        // Distribute evenly across under-target projects
+        val totalShortfall = billableShortfall.values.sum()
+        val newEntries = mutableListOf<TimeEntry>()
+        val today = epochToDateString(now)
+
+        for ((projectId, shortfall) in billableShortfall) {
+            // Proportional share of distributed hours based on shortfall ratio
+            val share = totalDistributedHours * (shortfall / totalShortfall)
+            val allocatedHours = minOf(share, shortfall) // Don't exceed target
+            if (allocatedHours < 0.05) continue // Skip trivial amounts
+
+            val durationMs = (allocatedHours * 3_600_000).toLong()
+            val entry = TimeEntry(
+                id = generateId(),
+                projectId = projectId,
+                taskDescription = "Admin time (auto-distributed)",
+                startTime = dateStringToEpoch(today),
+                endTime = dateStringToEpoch(today) + durationMs,
+                durationMs = durationMs,
+                date = today,
+                isRunning = false
+            )
+            repository.saveTimeEntry(entry)
+            newEntries.add(entry)
+        }
+
+        refreshToday()
+        return newEntries
+    }
+
+    /**
+     * Get entries for a specific project in a given week (for click-through detail view).
+     */
+    suspend fun getProjectEntriesForWeek(projectId: String, dateInWeek: String): List<TimeEntry> {
+        val (monday, sunday) = getWeekBounds(dateInWeek)
+        return repository.getTimeEntries(monday, sunday).filter { it.projectId == projectId }
+    }
+
     private suspend fun refreshToday() {
         _todayEntries.value = repository.getTimeEntriesForDate(epochToDateString(currentTimeMillis()))
     }
