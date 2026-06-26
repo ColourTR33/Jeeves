@@ -77,7 +77,9 @@ class RecordingManager(
         diarizationClient = diarizationClient
     )
 
-    private var recordingStartTime: Long = 0
+    private var _recordingStartTime: Long = 0
+    /** Exposed for UI to detect re-entry vs fresh recording start. */
+    val recordingStartTime: Long get() = _recordingStartTime
 
     /** Pending metadata set by the UI during recording, consumed on stop. */
     var pendingTitle: String = ""
@@ -114,7 +116,7 @@ class RecordingManager(
             // Allow platform to configure audio device before recording starts
             streamingCallback?.onPreRecordingSetup(settings)
 
-            recordingStartTime = currentTimeMillis()
+            _recordingStartTime = currentTimeMillis()
             audioRecorder.startRecording(outputPath, stereo = useStereo)
             _state.value = RecordingState.RECORDING
 
@@ -144,7 +146,7 @@ class RecordingManager(
             streamingCallback?.onRecordingStopping()
 
             val filePath = audioRecorder.stopRecording()
-            val duration = currentTimeMillis() - recordingStartTime
+            val duration = currentTimeMillis() - _recordingStartTime
 
             val recording = Recording(
                 id = generateId(),

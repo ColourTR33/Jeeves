@@ -77,13 +77,15 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
     }
 
     // Track whether this is a fresh recording start (not a re-entry to the tab)
-    var hasResetForCurrentRecording by remember { mutableStateOf(false) }
+    // Use recordingManager's startTime to detect re-entry vs fresh start
+    var lastKnownRecordingStart by remember { mutableStateOf(0L) }
 
     LaunchedEffect(recordingState) {
         if (recordingState == RecordingState.RECORDING) {
-            // Only reset metadata once at the START of a new recording
-            if (!hasResetForCurrentRecording) {
-                hasResetForCurrentRecording = true
+            val currentStart = appState.recordingManager.recordingStartTime
+            if (currentStart != lastKnownRecordingStart) {
+                // Genuine new recording — reset metadata
+                lastKnownRecordingStart = currentStart
                 meetingTitle = ""
                 meetingDescription = ""
                 attachments = emptyList()
@@ -112,7 +114,6 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
             }
         } else if (recordingState == RecordingState.IDLE) {
             elapsedSeconds = 0
-            hasResetForCurrentRecording = false
         }
     }
 
