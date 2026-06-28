@@ -39,7 +39,8 @@ data class Recording(
     val tags: List<String> = emptyList(),
     val folder: String = "",
     val highlights: List<Long> = emptyList(),  // Timestamp ms values of bookmarked moments
-    val attachments: List<Attachment> = emptyList()  // Screenshots captured during recording
+    val attachments: List<Attachment> = emptyList(),  // Screenshots captured during recording
+    val postRecordingNote: String = ""  // User-authored annotation added after recording
 )
 
 /**
@@ -78,6 +79,18 @@ data class TranscriptionSegment(
 )
 
 /**
+ * AI-generated assessment of meeting effectiveness across defined criteria.
+ */
+@Serializable
+data class QualityRating(
+    val pacing: Int,          // 1-5
+    val questions: Int,       // 1-5
+    val goalSetting: Int,     // 1-5
+    val nextSteps: Int,       // 1-5
+    val overall: Double       // Arithmetic mean, 1 decimal place
+)
+
+/**
  * Result of summarising a transcription.
  */
 @Serializable
@@ -88,7 +101,9 @@ data class SummaryResult(
     val actionItems: List<String> = emptyList(),
     val questions: List<String> = emptyList(),
     val tags: List<String> = emptyList(),  // Auto-generated hashtag tags for organization
-    val modelUsed: String = ""
+    val modelUsed: String = "",
+    val recommendedQuestions: List<String> = emptyList(),  // AI follow-up questions (max 5)
+    val qualityRating: QualityRating? = null               // null when omitted (< 50 words)
 )
 
 /**
@@ -147,6 +162,17 @@ enum class TranscriptionProvider {
 }
 
 /**
+ * Configuration for a cloud-based LLM provider (OpenAI-compatible API).
+ */
+@Serializable
+data class CloudLlmConfig(
+    val baseUrl: String,          // e.g., "https://api.openai.com" or "https://api.anthropic.com"
+    val apiKey: String,           // Bearer token — stored in settings, masked in UI
+    val modelName: String,        // e.g., "gpt-4o", "claude-3-sonnet"
+    val enabled: Boolean = false  // When true, cloud is used instead of local Ollama
+)
+
+/**
  * Application settings.
  */
 @Serializable
@@ -188,5 +214,7 @@ data class AppSettings(
      * full-file transcription of the previous recording.
      * Null (default) = share the main [transcriptionEndpoint] for both purposes.
      */
-    val streamingTranscriptionEndpoint: AiEndpointConfig? = null
+    val streamingTranscriptionEndpoint: AiEndpointConfig? = null,
+    val promptTemplates: Map<MeetingTemplate, String> = emptyMap(),  // Custom prompt templates per meeting type
+    val cloudLlmConfig: CloudLlmConfig? = null  // Cloud LLM provider configuration (null = not configured)
 )

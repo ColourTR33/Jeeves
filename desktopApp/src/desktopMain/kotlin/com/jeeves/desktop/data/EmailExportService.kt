@@ -49,9 +49,15 @@ class EmailExportService {
                 if (summary.actionItems.isNotEmpty()) {
                     appendLine("ACTION ITEMS")
                     summary.actionItems.forEach { appendLine("☐ $it") }
+                    appendLine()
                 }
             } else {
                 appendLine("(No summary available)")
+            }
+            if (recording.postRecordingNote.isNotBlank()) {
+                appendLine()
+                appendLine("NOTES")
+                appendLine(recording.postRecordingNote)
             }
         }
     }

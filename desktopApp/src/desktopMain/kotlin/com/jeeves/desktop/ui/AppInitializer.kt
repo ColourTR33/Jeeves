@@ -19,6 +19,7 @@ import com.jeeves.desktop.hotkey.HotkeyManager
 import com.jeeves.desktop.ui.screens.AppState
 import com.jeeves.desktop.ui.screens.LocalAppState
 import com.jeeves.shared.ai.OllamaClient
+import com.jeeves.shared.ai.PromptTemplateManager
 import com.jeeves.shared.ai.WhisperClient
 import com.jeeves.shared.ai.createHttpClient
 import com.jeeves.shared.domain.AppSettings
@@ -91,6 +92,7 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
         val emailExportService = EmailExportService()
         val obsidianExportService = ObsidianExportService()
         val calendarService = CalendarService()
+        val promptTemplateManager = PromptTemplateManager(settingsRepository)
 
         val timeRepo = com.jeeves.desktop.data.FileTimeTrackingRepository()
         val timeManager = com.jeeves.shared.time.TimeTrackingManager(timeRepo, scope)
@@ -107,7 +109,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             scope = scope,
             streamingCallback = streamingCallback,
             groqWhisperClient = com.jeeves.shared.ai.GroqWhisperClient(httpClient),
-            diarizationClient = com.jeeves.shared.ai.DiarizationClient(httpClient)
+            diarizationClient = com.jeeves.shared.ai.DiarizationClient(httpClient),
+            promptTemplateManager = promptTemplateManager
         )
 
         // Wire recording → timesheet integration: auto-log meeting time (+10 min handoff)

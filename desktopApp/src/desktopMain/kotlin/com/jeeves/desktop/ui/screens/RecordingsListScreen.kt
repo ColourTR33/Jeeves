@@ -13,6 +13,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,11 +28,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jeeves.desktop.data.SearchResult
+import com.jeeves.shared.domain.QualityRating
 import com.jeeves.shared.domain.Recording
 import com.jeeves.shared.domain.RecordingState
 import com.jeeves.shared.domain.SummaryResult
 import com.jeeves.shared.domain.TranscriptionResult
 import com.jeeves.shared.ui.groupBySpeaker
+import kotlin.math.floor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.*
@@ -1125,16 +1128,142 @@ private fun RecordingDetail(
         Spacer(modifier = Modifier.height(16.dp))
 
         when (selectedTab) {
-            0 -> SummaryView(summary)
+            0 -> SummaryView(summary, recording) { note ->
+                scope.launch {
+                    appState.recordingsRepository.updateRecordingNote(recording.id, note)
+                }
+            }
             1 -> TranscriptionView(transcription, recording)
         }
     }
 }
 
 @Composable
-private fun SummaryView(summary: SummaryResult?) {
+private fun QualityRatingIndicator(qualityRating: QualityRating?) {
+    if (qualityRating == null) return
+
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Star row with overall score
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+            ) {
+                Text(
+                    "Meeting Quality",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Star icons
+                val overall = qualityRating.overall
+                val fullStars = floor(overall).toInt()
+                val fractional = overall - fullStars
+                val hasHalfStar = fractional in 0.3..0.7
+                val emptyStars = 5 - fullStars - if (hasHalfStar) 1 else 0
+
+                repeat(fullStars) {
+                    Icon(
+                        Icons.Filled.Star,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                if (hasHalfStar) {
+                    Icon(
+                        Icons.Filled.StarHalf,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                repeat(emptyStars) {
+                    Icon(
+                        Icons.Outlined.Star,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "${qualityRating.overall}/5",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(
+                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Expandable criteria section
+            if (expanded) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Divider()
+                Spacer(modifier = Modifier.height(12.dp))
+
+                QualityCriteriaRow("Pacing", qualityRating.pacing)
+                QualityCriteriaRow("Questions", qualityRating.questions)
+                QualityCriteriaRow("Goal-Setting", qualityRating.goalSetting)
+                QualityCriteriaRow("Next Steps", qualityRating.nextSteps)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QualityCriteriaRow(label: String, score: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.width(120.dp)
+        )
+        Text(
+            text = "$score/5",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@Composable
+private fun SummaryView(summary: SummaryResult?, recording: Recording, onNoteChanged: (String) -> Unit) {
     if (summary == null) {
-        Text("No summary available yet.", style = MaterialTheme.typography.bodyMedium)
+        // Still show the notes editor even when there's no summary
+        LazyColumn {
+            item {
+                Text("No summary available yet.", style = MaterialTheme.typography.bodyMedium)
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            item {
+                PostRecordingNotesEditor(recording = recording, onNoteChanged = onNoteChanged)
+            }
+        }
         return
     }
 
@@ -1146,6 +1275,14 @@ private fun SummaryView(summary: SummaryResult?) {
             Spacer(modifier = Modifier.height(16.dp))
         }
 
+        // Quality rating indicator
+        item {
+            QualityRatingIndicator(qualityRating = summary.qualityRating)
+            if (summary.qualityRating != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+
         if (summary.keyPoints.isNotEmpty()) {
             item {
                 Text("Key Points", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -1155,6 +1292,14 @@ private fun SummaryView(summary: SummaryResult?) {
                 Text("• $point", modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
             }
             item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
+
+        // Follow-up questions section (below summary/key points, before action items)
+        if (summary.recommendedQuestions.isNotEmpty()) {
+            item {
+                FollowUpQuestionsSection(questions = summary.recommendedQuestions)
+                Spacer(modifier = Modifier.height(16.dp))
+            }
         }
 
         if (summary.actionItems.isNotEmpty()) {
@@ -1186,6 +1331,86 @@ private fun SummaryView(summary: SummaryResult?) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+
+        // Post-recording notes editor at the bottom of the summary section
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+            PostRecordingNotesEditor(recording = recording, onNoteChanged = onNoteChanged)
+        }
+    }
+}
+
+/**
+ * Displays AI-recommended follow-up questions in a visually distinct card.
+ * Returns early (renders nothing) when the questions list is empty.
+ */
+@Composable
+private fun FollowUpQuestionsSection(questions: List<String>) {
+    if (questions.isEmpty()) return
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "💡 Follow-Up Questions",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            questions.forEach { question ->
+                Text(
+                    text = "• $question",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Editable text area for post-recording notes.
+ * Auto-saves on focus loss when content has changed.
+ * Loads existing note content from recording.postRecordingNote.
+ */
+@Composable
+fun PostRecordingNotesEditor(
+    recording: Recording,
+    onNoteChanged: (String) -> Unit
+) {
+    var noteText by remember(recording.id) { mutableStateOf(recording.postRecordingNote) }
+    var lastSavedText by remember(recording.id) { mutableStateOf(recording.postRecordingNote) }
+
+    Column {
+        Text(
+            "Notes",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = noteText,
+            onValueChange = { noteText = it },
+            placeholder = { Text("Add notes about this meeting...") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused && noteText != lastSavedText) {
+                        onNoteChanged(noteText)
+                        lastSavedText = noteText
+                    }
+                },
+            minLines = 4,
+            shape = RoundedCornerShape(10.dp),
+            textStyle = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 

@@ -59,7 +59,8 @@ class SqliteRecordingsRepository : RecordingsRepository {
                 tags TEXT NOT NULL DEFAULT '[]',
                 folder TEXT NOT NULL DEFAULT '',
                 highlights TEXT NOT NULL DEFAULT '[]',
-                attachments TEXT NOT NULL DEFAULT '[]'
+                attachments TEXT NOT NULL DEFAULT '[]',
+                post_recording_note TEXT NOT NULL DEFAULT ''
             )
         """)
 
@@ -90,6 +91,15 @@ class SqliteRecordingsRepository : RecordingsRepository {
         conn.createStatement().executeUpdate("""
             CREATE INDEX IF NOT EXISTS idx_recordings_created_at ON recordings(created_at DESC)
         """)
+
+        // Migration: add post_recording_note column if it doesn't exist (for existing databases)
+        try {
+            conn.createStatement().executeUpdate("""
+                ALTER TABLE recordings ADD COLUMN post_recording_note TEXT NOT NULL DEFAULT ''
+            """)
+        } catch (_: Exception) {
+            // Column already exists — safe to ignore
+        }
     }
 
     // --- Recordings ---
@@ -98,8 +108,8 @@ class SqliteRecordingsRepository : RecordingsRepository {
 
     private fun saveRecordingInternal(recording: Recording) {
         val stmt = connection.prepareStatement("""
-            INSERT OR REPLACE INTO recordings (id, file_path, duration_ms, created_at, title, description, template, tags, folder, highlights, attachments)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO recordings (id, file_path, duration_ms, created_at, title, description, template, tags, folder, highlights, attachments, post_recording_note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """)
         stmt.setString(1, recording.id)
         stmt.setString(2, recording.filePath)
@@ -112,6 +122,7 @@ class SqliteRecordingsRepository : RecordingsRepository {
         stmt.setString(9, recording.folder)
         stmt.setString(10, json.encodeToString(ListSerializer(Long.serializer()), recording.highlights))
         stmt.setString(11, json.encodeToString(ListSerializer(Attachment.serializer()), recording.attachments))
+        stmt.setString(12, recording.postRecordingNote)
         stmt.executeUpdate()
         stmt.close()
     }
@@ -140,6 +151,14 @@ class SqliteRecordingsRepository : RecordingsRepository {
 
     override suspend fun updateRecording(recording: Recording) = withDb {
         saveRecordingInternal(recording)
+    }
+
+    override suspend fun updateRecordingNote(recordingId: String, note: String) = withDb {
+        val stmt = connection.prepareStatement("UPDATE recordings SET post_recording_note = ? WHERE id = ?")
+        stmt.setString(1, note)
+        stmt.setString(2, recordingId)
+        stmt.executeUpdate()
+        stmt.close()
     }
 
     override suspend fun deleteRecording(id: String) {
@@ -324,7 +343,8 @@ class SqliteRecordingsRepository : RecordingsRepository {
             highlights = json.decodeFromString(ListSerializer(Long.serializer()), rs.getString("highlights")),
             attachments = try {
                 json.decodeFromString(ListSerializer(Attachment.serializer()), rs.getString("attachments"))
-            } catch (_: Exception) { emptyList() }
+            } catch (_: Exception) { emptyList() },
+            postRecordingNote = try { rs.getString("post_recording_note") ?: "" } catch (_: Exception) { "" }
         )
     }
 }

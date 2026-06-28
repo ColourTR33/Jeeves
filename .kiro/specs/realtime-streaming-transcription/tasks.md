@@ -27,7 +27,7 @@ Implements live transcription feedback during recording sessions. A `StreamingTr
     - Disable Save button when any streaming validation fails
     - _Requirements: 6.6, 6.7_
 
-  - [ ]* 1.4 Write property tests for settings validation (Properties 5 and 6)
+  - [x] 1.4 Write property tests for settings validation (Properties 5 and 6)
     - **Property 5: Settings Range Validation** — For any integer, `validateChunkInterval` returns true iff value is in [3, 30]; for any float, `validateOverlapWindow` returns true iff value is in [0.5, 5.0]
     - **Property 6: Overlap Must Be Less Than Interval** — For any pair `(overlap, interval)`, cross-field validation returns valid iff `overlap < interval`
     - Place tests in `shared/src/commonTest/kotlin/com/jeeves/shared/domain/StreamingSettingsValidationPropertyTest.kt`
@@ -42,7 +42,7 @@ Implements live transcription feedback during recording sessions. A `StreamingTr
     - Expose `liveTranscript: StateFlow<String>` and `isTranscribing: StateFlow<Boolean>`
     - _Requirements: 1.2, 3.3_
 
-  - [ ]* 2.2 Write property test for WAV header correctness (Property 1)
+  - [ ] 2.2 Write property test for WAV header correctness (Property 1)
     - **Property 1: WAV Header Correctness** — For any valid PCM byte array and channel count (1 or 2), `buildWavPayload` produces correct RIFF/WAVE markers, correct ChunkSize, matching NumChannels, SampleRate = 16000, correct Subchunk2Size, and total length = input + 44
     - Place test in `desktopApp/src/desktopTest/kotlin/com/jeeves/desktop/audio/StreamingTranscriberPropertyTest.kt`
     - Add kotest-property test dependency to desktopApp build if not present
@@ -54,7 +54,7 @@ Implements live transcription feedback during recording sessions. A `StreamingTr
     - Handle edge case: if previous chunk is shorter than overlap window, use all available bytes
     - _Requirements: 1.3_
 
-  - [ ]* 2.4 Write property test for overlap prepend concatenation (Property 2)
+  - [ ] 2.4 Write property test for overlap prepend concatenation (Property 2)
     - **Property 2: Overlap Prepend Concatenation** — For any previousTail and currentChunk byte arrays, result has length = sum of both, starts with previousTail bytes, ends with currentChunk bytes
     - Place test alongside Property 1 test file
     - **Validates: Requirements 1.3**
@@ -66,7 +66,7 @@ Implements live transcription feedback during recording sessions. A `StreamingTr
     - Handle empty/whitespace-only newText by returning existing unchanged
     - _Requirements: 3.1, 3.2, 3.6_
 
-  - [ ]* 2.6 Write property tests for deduplication and whitespace rejection (Properties 3 and 4)
+  - [ ] 2.6 Write property tests for deduplication and whitespace rejection (Properties 3 and 4)
     - **Property 3: Suffix-Prefix Deduplication** — For two word sequences with K≥3 overlap, result word count = |A| + |B| - K; for no overlap ≥3, result = A + " " + B
     - **Property 4: Whitespace-Only Text Rejection** — For any whitespace/empty string, transcript remains unchanged
     - Custom generators: `Arb.wordSequence()`, `Arb.overlappingWordPair()`, `Arb.whitespaceString()`
@@ -74,9 +74,9 @@ Implements live transcription feedback during recording sessions. A `StreamingTr
     - **Validates: Requirements 3.1, 3.2, 3.6**
 
   - [x] 2.7 Implement chunk extraction and HTTP transport
-    - Implement `extractChunk(audioRecorder: DesktopAudioRecorder, channels: Int): ByteArray` using synchronized read of new bytes since `lastReadPosition`
-    - Implement `sendChunkForTranscription(wavData: ByteArray, config: AiEndpointConfig): String?` — multipart POST to /inference with 30s timeout, parse verbose_json response
-    - Implement `checkServerConnectivity(baseUrl: String): Boolean` — HEAD request with 3s timeout
+    - Implement `extractChunk(audioRecorder: DesktopAudioRecorder, session: StreamingSession): ByteArray` using synchronized read of new bytes since `lastReadPosition` via `audioRecorder.getBufferSnapshot()`
+    - Implement `sendChunkForTranscription(wavData: ByteArray, config: AiEndpointConfig): String?` — multipart POST to /inference with 30s timeout, parse verbose_json response (tries both `/v1/audio/inference` and `/inference` endpoints)
+    - Implement `checkServerConnectivity(baseUrl: String): Boolean` — GET /health with 3s timeout, accepts 200 or 404 (server up, no health route)
     - _Requirements: 1.1, 2.1, 2.2, 2.3, 2.5, 7.4, 8.1, 8.2, 8.3_
 
   - [x] 2.8 Implement streaming lifecycle (startStreaming / stopStreaming)
@@ -87,7 +87,7 @@ Implements live transcription feedback during recording sessions. A `StreamingTr
     - Reset liveTranscript to empty on startStreaming
     - _Requirements: 1.1, 1.4, 1.5, 2.4, 3.4, 3.5, 6.4, 7.1, 7.2, 7.3, 7.5_
 
-  - [ ]* 2.9 Write unit tests for StreamingTranscriber
+  - [ ] 2.9 Write unit tests for StreamingTranscriber
     - Test: parse verbose_json response extracts text correctly
     - Test: HTTP error returns null without throwing
     - Test: timeout returns null after 30s
@@ -109,20 +109,22 @@ Implements live transcription feedback during recording sessions. A `StreamingTr
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 5. Integrate StreamingTranscriber with RecordingManager
-  - [x] 5.1 Wire StreamingTranscriber into RecordingManager
-    - Add `StreamingTranscriber` as a constructor parameter to `RecordingManager`
-    - Call `streamingTranscriber.startStreaming(audioRecorder, settings, scope)` after `audioRecorder.startRecording()` succeeds in `startRecording()`
-    - Call `streamingTranscriber.stopStreaming()` at the beginning of `stopRecording()`, before stopping the audio recorder
-    - Pass streaming settings from `settingsRepository.getSettings()`
-    - Only start streaming if `settings.streamingEnabled` is true
+  - [x] 5.1 Wire StreamingTranscriber into RecordingManager via StreamingCallback
+    - Define `StreamingCallback` interface in shared module with `onPreRecordingSetup`, `onRecordingStarted`, `onRecordingStopping`, `getStreamingTranscript`
+    - `RecordingManager` accepts optional `StreamingCallback` parameter and calls it at appropriate lifecycle points
+    - `onRecordingStarted(settings)` called after `audioRecorder.startRecording()` succeeds — triggers `streamingTranscriber.startStreaming()`
+    - `onRecordingStopping()` called at beginning of `stopRecording()` before stopping recorder — triggers `streamingTranscriber.stopStreaming()`
+    - Streaming only starts if `settings.streamingEnabled` is true (enforced inside `startStreaming`)
     - _Requirements: 1.1, 5.1, 6.4, 7.1, 7.5_
 
   - [x] 5.2 Update RecordingManager instantiation in AppState/DI
-    - Update wherever `RecordingManager` is constructed (likely `AppState` or `AppInitializer`) to inject the `StreamingTranscriber` instance
-    - Create the `HttpClient` (Ktor CIO) for `StreamingTranscriber` at the app level
+    - Create `DesktopStreamingCallback` in `AppInitializer.kt` that implements `StreamingCallback` and bridges to `StreamingTranscriber`
+    - Instantiate `StreamingTranscriber(httpClient)` in AppInitializer
+    - Pass `DesktopStreamingCallback` to `RecordingManager` constructor as `streamingCallback`
+    - Inject `streamingTranscriber` into `AppState` for UI access to `liveTranscript` and `isTranscribing` StateFlows
     - _Requirements: 7.3_
 
-  - [ ]* 5.3 Write integration tests for RecordingManager + StreamingTranscriber
+  - [ ] 5.3 Write integration tests for RecordingManager + StreamingTranscriber
     - Test: full chunk extraction + transcription cycle with mock server (Reqs 1.1, 2.1, 2.4)
     - Test: pause suspends extraction, resume restarts timer (Reqs 1.4, 1.5)
     - Test: scope cancel stops all work (Req 7.3)

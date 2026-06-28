@@ -8,14 +8,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.jeeves.shared.domain.AiEndpointConfig
 import com.jeeves.shared.domain.AiEndpointType
 import com.jeeves.shared.domain.AppSettings
 import com.jeeves.shared.domain.AudioSource
+import com.jeeves.shared.domain.CloudLlmConfig
 import com.jeeves.shared.domain.DiarizationMode
+import com.jeeves.shared.domain.MeetingTemplate
 import com.jeeves.shared.domain.validateChunkInterval
 import com.jeeves.shared.domain.validateOverlapWindow
 import com.jeeves.shared.domain.validateOverlapLessThanInterval
+import com.jeeves.shared.ai.PromptTemplateManager
 import kotlinx.coroutines.launch
 import com.jeeves.desktop.audio.AudioInputDevice
 
@@ -87,6 +91,128 @@ fun SettingsScreen() {
                 isSaved = false
             }
         )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // LLM Provider selection (Local vs Cloud)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("LLM Provider", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Provider toggle
+                var isCloudEnabled by remember(settings) {
+                    mutableStateOf(settings.cloudLlmConfig?.enabled == true)
+                }
+                var cloudBaseUrl by remember(settings) {
+                    mutableStateOf(settings.cloudLlmConfig?.baseUrl ?: "")
+                }
+                var cloudApiKey by remember(settings) {
+                    mutableStateOf(settings.cloudLlmConfig?.apiKey ?: "")
+                }
+                var cloudModelName by remember(settings) {
+                    mutableStateOf(settings.cloudLlmConfig?.modelName ?: "")
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(if (isCloudEnabled) "Cloud (OpenAI-compatible)" else "Local (Ollama)")
+                    Switch(
+                        checked = isCloudEnabled,
+                        onCheckedChange = { enabled ->
+                            isCloudEnabled = enabled
+                            settings = settings.copy(
+                                cloudLlmConfig = CloudLlmConfig(
+                                    baseUrl = cloudBaseUrl,
+                                    apiKey = cloudApiKey,
+                                    modelName = cloudModelName,
+                                    enabled = enabled
+                                )
+                            )
+                            isSaved = false
+                        }
+                    )
+                }
+
+                if (isCloudEnabled) {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = cloudBaseUrl,
+                        onValueChange = { newValue ->
+                            cloudBaseUrl = newValue
+                            settings = settings.copy(
+                                cloudLlmConfig = CloudLlmConfig(
+                                    baseUrl = newValue,
+                                    apiKey = cloudApiKey,
+                                    modelName = cloudModelName,
+                                    enabled = true
+                                )
+                            )
+                            isSaved = false
+                        },
+                        label = { Text("API Base URL") },
+                        placeholder = { Text("https://api.openai.com") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = cloudApiKey,
+                        onValueChange = { newValue ->
+                            cloudApiKey = newValue
+                            settings = settings.copy(
+                                cloudLlmConfig = CloudLlmConfig(
+                                    baseUrl = cloudBaseUrl,
+                                    apiKey = newValue,
+                                    modelName = cloudModelName,
+                                    enabled = true
+                                )
+                            )
+                            isSaved = false
+                        },
+                        label = { Text("API Key") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = cloudModelName,
+                        onValueChange = { newValue ->
+                            cloudModelName = newValue
+                            settings = settings.copy(
+                                cloudLlmConfig = CloudLlmConfig(
+                                    baseUrl = cloudBaseUrl,
+                                    apiKey = cloudApiKey,
+                                    modelName = newValue,
+                                    enabled = true
+                                )
+                            )
+                            isSaved = false
+                        },
+                        label = { Text("Model Name") },
+                        placeholder = { Text("gpt-4o") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Uses the OpenAI-compatible /v1/chat/completions API format.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -619,6 +745,95 @@ fun SettingsScreen() {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Prompt Template Editor
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Prompt Templates", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Template type dropdown
+                var templateExpanded by remember { mutableStateOf(false) }
+                var selectedTemplate by remember { mutableStateOf(MeetingTemplate.GENERAL) }
+                var templateText by remember { mutableStateOf("") }
+
+                // Load effective template text when selection changes or settings load
+                LaunchedEffect(selectedTemplate, settings.promptTemplates) {
+                    val custom = settings.promptTemplates[selectedTemplate]
+                    templateText = if (custom.isNullOrBlank()) {
+                        PromptTemplateManager.DEFAULT_PROMPTS[selectedTemplate]
+                            ?: PromptTemplateManager.DEFAULT_PROMPTS[MeetingTemplate.GENERAL]!!
+                    } else {
+                        custom
+                    }
+                }
+
+                ExposedDropdownMenuBox(
+                    expanded = templateExpanded,
+                    onExpandedChange = { templateExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = selectedTemplate.name.replace("_", " "),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Meeting Type") },
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = templateExpanded) }
+                    )
+                    ExposedDropdownMenu(
+                        expanded = templateExpanded,
+                        onDismissRequest = { templateExpanded = false }
+                    ) {
+                        MeetingTemplate.entries.forEach { template ->
+                            DropdownMenuItem(
+                                text = { Text(template.name.replace("_", " ")) },
+                                onClick = {
+                                    selectedTemplate = template
+                                    templateExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Multi-line template editor
+                OutlinedTextField(
+                    value = templateText,
+                    onValueChange = { newText ->
+                        templateText = newText
+                        // Update the promptTemplates map in settings
+                        val updatedTemplates = settings.promptTemplates.toMutableMap()
+                        updatedTemplates[selectedTemplate] = newText
+                        settings = settings.copy(promptTemplates = updatedTemplates)
+                        isSaved = false
+                    },
+                    label = { Text("Prompt Template") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 6,
+                    singleLine = false
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Reset to Default button
+                TextButton(onClick = {
+                    val defaultPrompt = PromptTemplateManager.DEFAULT_PROMPTS[selectedTemplate]
+                        ?: PromptTemplateManager.DEFAULT_PROMPTS[MeetingTemplate.GENERAL]!!
+                    templateText = defaultPrompt
+                    // Remove the custom template entry to fall back to default
+                    val updatedTemplates = settings.promptTemplates.toMutableMap()
+                    updatedTemplates.remove(selectedTemplate)
+                    settings = settings.copy(promptTemplates = updatedTemplates)
+                    isSaved = false
+                }) {
+                    Text("Reset to Default")
+                }
             }
         }
 

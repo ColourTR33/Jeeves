@@ -83,6 +83,13 @@ class ObsidianExportService {
                 }
             }
 
+            if (recording.postRecordingNote.isNotBlank()) {
+                appendLine("## Notes")
+                appendLine()
+                appendLine(recording.postRecordingNote)
+                appendLine()
+            }
+
             if (transcription != null) {
                 appendLine("## Transcription")
                 appendLine()

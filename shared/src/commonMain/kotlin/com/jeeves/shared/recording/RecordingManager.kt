@@ -4,6 +4,7 @@ import com.jeeves.shared.ai.AppLogger
 import com.jeeves.shared.ai.DiarizationClient
 import com.jeeves.shared.ai.GroqWhisperClient
 import com.jeeves.shared.ai.OllamaClient
+import com.jeeves.shared.ai.PromptTemplateManager
 import com.jeeves.shared.ai.WhisperClient
 import com.jeeves.shared.ai.formatWithSpeakers
 import com.jeeves.shared.ai.hasSpeakerLabels
@@ -51,6 +52,7 @@ class RecordingManager(
     private val streamingCallback: StreamingCallback? = null,
     private val groqWhisperClient: GroqWhisperClient? = null,
     private val diarizationClient: DiarizationClient? = null,
+    private val promptTemplateManager: PromptTemplateManager? = null,
     /** Called after a recording is saved — used to auto-log time to the timesheet. */
     var onRecordingSaved: ((Recording, String) -> Unit)? = null  // (recording, projectId) -> Unit
 ) {
@@ -74,7 +76,8 @@ class RecordingManager(
         recordingsRepository = recordingsRepository,
         scope = scope,
         groqClient = groqWhisperClient,
-        diarizationClient = diarizationClient
+        diarizationClient = diarizationClient,
+        promptTemplateManager = promptTemplateManager
     )
 
     private var _recordingStartTime: Long = 0

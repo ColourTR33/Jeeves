@@ -33,6 +33,8 @@ kotlin {
                 implementation(kotlin("test"))
                 implementation("io.kotest:kotest-property:5.8.0")
                 implementation("io.kotest:kotest-assertions-core:5.8.0")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+                implementation("io.ktor:ktor-client-mock:2.3.7")
             }
         }
 

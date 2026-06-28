@@ -54,6 +54,12 @@ class FileRecordingsRepository : RecordingsRepository {
         recordingsFile.writeText(json.encodeToString(RecordingsList.serializer(), RecordingsList(recordings)))
     }
 
+    override suspend fun updateRecordingNote(recordingId: String, note: String) {
+        val recording = getRecording(recordingId) ?: return
+        val updated = recording.copy(postRecordingNote = note)
+        updateRecording(updated)
+    }
+
     override suspend fun deleteRecording(id: String) {
         val recordings = getRecordings().filter { it.id != id }
         recordingsFile.writeText(json.encodeToString(RecordingsList.serializer(), RecordingsList(recordings)))

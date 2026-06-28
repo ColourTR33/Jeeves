@@ -22,15 +22,18 @@ class OllamaClient(
         transcription: TranscriptionResult,
         config: AiEndpointConfig,
         description: String,
-        attachmentCount: Int
+        attachmentCount: Int,
+        promptTemplate: String,
+        meetingTemplate: MeetingTemplate,
+        cloudLlmConfig: CloudLlmConfig?
     ): SummaryResult {
         val wordCount = transcription.text.split("\\s+".toRegex()).size
 
         // For long transcripts (>4000 words), use chunked summarization
         return if (wordCount > 4000) {
-            summarizeChunked(transcription, config, description, attachmentCount)
+            summarizeChunked(transcription, config, description, attachmentCount, promptTemplate, meetingTemplate, cloudLlmConfig)
         } else {
-            summarizeDirect(transcription, config, description, attachmentCount)
+            summarizeDirect(transcription, config, description, attachmentCount, promptTemplate, meetingTemplate, cloudLlmConfig)
         }
     }
 
@@ -38,17 +41,33 @@ class OllamaClient(
         transcription: TranscriptionResult,
         config: AiEndpointConfig,
         description: String,
-        attachmentCount: Int
+        attachmentCount: Int,
+        promptTemplate: String,
+        meetingTemplate: MeetingTemplate,
+        cloudLlmConfig: CloudLlmConfig?
     ): SummaryResult {
-        val prompt = buildSummarizationPrompt(transcription, description, attachmentCount)
+        val prompt = buildSummarizationPrompt(transcription, description, attachmentCount, promptTemplate, meetingTemplate)
 
-        val response = try {
-            callOllamaApi(config, prompt)
-        } catch (e: Exception) {
-            callOpenAiCompatibleApi(config, prompt)
+        val response = if (cloudLlmConfig?.enabled == true) {
+            // Route to cloud LLM provider
+            val cloudConfig = AiEndpointConfig(
+                name = "Cloud LLM",
+                baseUrl = cloudLlmConfig.baseUrl,
+                modelName = cloudLlmConfig.modelName,
+                type = AiEndpointType.LLM_SUMMARIZATION
+            )
+            callOpenAiCompatibleApi(cloudConfig, prompt, apiKey = cloudLlmConfig.apiKey)
+        } else {
+            // Use existing local Ollama flow with fallback
+            try {
+                callOllamaApi(config, prompt)
+            } catch (e: Exception) {
+                callOpenAiCompatibleApi(config, prompt)
+            }
         }
 
-        return parseSummaryResponse(transcription.recordingId, response, config.modelName)
+        return parseSummaryResponse(transcription.recordingId, response, 
+            if (cloudLlmConfig?.enabled == true) cloudLlmConfig.modelName else config.modelName)
     }
 
     /**
@@ -61,13 +80,26 @@ class OllamaClient(
         transcription: TranscriptionResult,
         config: AiEndpointConfig,
         description: String,
-        attachmentCount: Int
+        attachmentCount: Int,
+        promptTemplate: String,
+        meetingTemplate: MeetingTemplate,
+        cloudLlmConfig: CloudLlmConfig? = null
     ): SummaryResult {
         val words = transcription.text.split("\\s+".toRegex())
         val chunkSize = 3000
         val chunks = words.chunked(chunkSize).map { it.joinToString(" ") }
 
         AppLogger.info("OllamaClient", "Chunked summarization: ${words.size} words -> ${chunks.size} chunks")
+
+        // Resolve cloud config for routing
+        val cloudEndpointConfig = if (cloudLlmConfig?.enabled == true) {
+            AiEndpointConfig(
+                name = "Cloud LLM",
+                baseUrl = cloudLlmConfig.baseUrl,
+                modelName = cloudLlmConfig.modelName,
+                type = AiEndpointType.LLM_SUMMARIZATION
+            )
+        } else null
 
         // Phase 1: Summarize each chunk
         val chunkSummaries = mutableListOf<String>()
@@ -81,10 +113,14 @@ class OllamaClient(
                 |$chunk
             """.trimMargin()
 
-            val chunkResponse = try {
-                callOllamaApi(config, chunkPrompt)
-            } catch (e: Exception) {
-                callOpenAiCompatibleApi(config, chunkPrompt)
+            val chunkResponse = if (cloudEndpointConfig != null) {
+                callOpenAiCompatibleApi(cloudEndpointConfig, chunkPrompt, apiKey = cloudLlmConfig!!.apiKey)
+            } else {
+                try {
+                    callOllamaApi(config, chunkPrompt)
+                } catch (e: Exception) {
+                    callOpenAiCompatibleApi(config, chunkPrompt)
+                }
             }
             chunkSummaries.add("--- Part ${index + 1} ---\n$chunkResponse")
         }
@@ -127,13 +163,18 @@ class OllamaClient(
             |$combinedChunkText
         """.trimMargin()
 
-        val finalResponse = try {
-            callOllamaApi(config, finalPrompt)
-        } catch (e: Exception) {
-            callOpenAiCompatibleApi(config, finalPrompt)
+        val finalResponse = if (cloudEndpointConfig != null) {
+            callOpenAiCompatibleApi(cloudEndpointConfig, finalPrompt, apiKey = cloudLlmConfig!!.apiKey)
+        } else {
+            try {
+                callOllamaApi(config, finalPrompt)
+            } catch (e: Exception) {
+                callOpenAiCompatibleApi(config, finalPrompt)
+            }
         }
 
-        return parseSummaryResponse(transcription.recordingId, finalResponse, config.modelName)
+        return parseSummaryResponse(transcription.recordingId, finalResponse,
+            if (cloudLlmConfig?.enabled == true) cloudLlmConfig.modelName else config.modelName)
     }
 
     private suspend fun callOllamaApi(config: AiEndpointConfig, prompt: String): String {
@@ -153,7 +194,7 @@ class OllamaClient(
         return ollamaResponse.response
     }
 
-    private suspend fun callOpenAiCompatibleApi(config: AiEndpointConfig, prompt: String): String {
+    private suspend fun callOpenAiCompatibleApi(config: AiEndpointConfig, prompt: String, apiKey: String? = null): String {
         val requestBody = OpenAiChatRequest(
             model = config.modelName,
             messages = listOf(
@@ -164,7 +205,17 @@ class OllamaClient(
 
         val response = httpClient.post("${config.baseUrl}/v1/chat/completions") {
             contentType(ContentType.Application.Json)
+            if (!apiKey.isNullOrBlank()) {
+                header("Authorization", "Bearer $apiKey")
+            }
             setBody(json.encodeToString(OpenAiChatRequest.serializer(), requestBody))
+        }
+
+        val statusCode = response.status.value
+        if (statusCode == 401 || statusCode == 403) {
+            throw CloudLlmAuthenticationException(
+                "Cloud LLM API authentication failed. Please check your API key."
+            )
         }
 
         val responseBody: String = response.body()
@@ -172,10 +223,12 @@ class OllamaClient(
         return chatResponse.choices.firstOrNull()?.message?.content ?: ""
     }
 
-    private fun buildSummarizationPrompt(
+    internal fun buildSummarizationPrompt(
         transcription: TranscriptionResult,
         description: String = "",
-        attachmentCount: Int = 0
+        attachmentCount: Int = 0,
+        promptTemplate: String = "",
+        meetingTemplate: MeetingTemplate = MeetingTemplate.GENERAL
     ): String {
         val hasSpeakers = hasSpeakerLabels(transcription.segments)
 
@@ -203,7 +256,11 @@ class OllamaClient(
             ""
         }
 
-        return """
+        // Use custom prompt template as base instruction if non-empty, otherwise use hardcoded default
+        val baseInstruction = if (promptTemplate.isNotBlank()) {
+            promptTemplate
+        } else {
+            """
             |Please summarise the following meeting transcription. Provide:
             |1. A concise summary (2-3 paragraphs)
             |2. Key points discussed (bullet points)
@@ -232,13 +289,47 @@ class OllamaClient(
             |
             |TAGS:
             |#tag1 #tag2 #tag3
-            |$speakerInstruction$contextSection$attachmentNote
-            |TRANSCRIPTION:
-            |$formattedText
-        """.trimMargin()
+            """.trimMargin()
+        }
+
+        // Build follow-up questions section with interview-specific guidance
+        val followUpQuestionsSection = buildString {
+            append("\n\nFOLLOW_UP_QUESTIONS:\n")
+            append("Based on this meeting transcription, suggest 1-5 follow-up questions about topics or gaps that were not fully addressed in the conversation. If no meaningful gaps exist, return an empty list.")
+            if (meetingTemplate == MeetingTemplate.INTERVIEW) {
+                append("\nFocus follow-up questions on candidate assessment gaps and unexplored competency areas.")
+            }
+            append("\n\nFormat as:\nFOLLOW_UP_QUESTIONS:\n- [question 1]\n- [question 2]\n...")
+        }
+
+        // Conditionally append rating section only if transcription is long enough
+        val ratingSection = if (QualityRatingCalculator.shouldRate(transcription.text)) {
+            """
+            |
+            |RATING:
+            |Rate this meeting on the following criteria from 1 (poor) to 5 (excellent):
+            |Pacing: [1-5]
+            |Questions: [1-5]
+            |Goal-Setting: [1-5]
+            |Summary/Next Steps: [1-5]
+            """.trimMargin()
+        } else {
+            ""
+        }
+
+        return buildString {
+            append(baseInstruction)
+            append(followUpQuestionsSection)
+            append(ratingSection)
+            append(speakerInstruction)
+            append(contextSection)
+            append(attachmentNote)
+            append("\n\nTRANSCRIPTION:\n")
+            append(formattedText)
+        }
     }
 
-    private fun parseSummaryResponse(
+    internal fun parseSummaryResponse(
         recordingId: String,
         response: String,
         modelName: String
@@ -247,12 +338,16 @@ class OllamaClient(
         val keyPointsSection = extractSection(response, "KEY POINTS:", "ACTION ITEMS:")
         val actionItemsSection = extractSection(response, "ACTION ITEMS:", "QUESTIONS:")
         val questionsSection = extractSection(response, "QUESTIONS:", "TAGS:")
-        val tagsSection = extractSection(response, "TAGS:", null)
+        val tagsSection = extractSection(response, "TAGS:", "FOLLOW_UP_QUESTIONS:")
+        val followUpSection = extractSection(response, "FOLLOW_UP_QUESTIONS:", "RATING:")
+        val ratingSection = extractSection(response, "RATING:", null)
 
         val keyPoints = parseBulletPoints(keyPointsSection)
         val actionItems = parseBulletPoints(actionItemsSection)
         val questions = parseBulletPoints(questionsSection)
         val tags = parseHashtags(tagsSection)
+        val recommendedQuestions = parseBulletPoints(followUpSection).take(5)
+        val qualityRating = parseQualityRating(ratingSection)
 
         return SummaryResult(
             recordingId = recordingId,
@@ -261,7 +356,49 @@ class OllamaClient(
             actionItems = actionItems,
             questions = questions,
             tags = tags,
-            modelUsed = modelName
+            modelUsed = modelName,
+            recommendedQuestions = recommendedQuestions,
+            qualityRating = qualityRating
+        )
+    }
+
+    internal fun parseQualityRating(ratingText: String): QualityRating? {
+        if (ratingText.isBlank()) return null
+
+        val lines = ratingText.lines().associate { line ->
+            val parts = line.split(":", limit = 2)
+            if (parts.size == 2) {
+                parts[0].trim().lowercase() to parts[1].trim()
+            } else {
+                "" to ""
+            }
+        }
+
+        val pacing = lines["pacing"]?.toIntOrNull()
+        val questions = lines["questions"]?.toIntOrNull()
+        val goalSetting = lines["goal-setting"]?.toIntOrNull()
+        val nextSteps = lines["summary/next steps"]?.toIntOrNull()
+
+        // If any criterion is missing or unparseable, produce null
+        if (pacing == null || questions == null || goalSetting == null || nextSteps == null) {
+            return null
+        }
+
+        val clampedPacing = pacing.coerceIn(1, 5)
+        val clampedQuestions = questions.coerceIn(1, 5)
+        val clampedGoalSetting = goalSetting.coerceIn(1, 5)
+        val clampedNextSteps = nextSteps.coerceIn(1, 5)
+
+        val overall = QualityRatingCalculator.calculateOverall(
+            clampedPacing, clampedQuestions, clampedGoalSetting, clampedNextSteps
+        )
+
+        return QualityRating(
+            pacing = clampedPacing,
+            questions = clampedQuestions,
+            goalSetting = clampedGoalSetting,
+            nextSteps = clampedNextSteps,
+            overall = overall
         )
     }
 
@@ -293,6 +430,12 @@ class OllamaClient(
         return regex.findAll(text).map { it.value.removePrefix("#") }.toList().distinct()
     }
 }
+
+/**
+ * Exception thrown when a cloud LLM API returns 401 or 403, indicating
+ * the API key is invalid or expired.
+ */
+class CloudLlmAuthenticationException(message: String) : Exception(message)
 
 @Serializable
 data class OllamaGenerateRequest(

@@ -4,6 +4,7 @@ import com.jeeves.shared.ai.AppLogger
 import com.jeeves.shared.ai.DiarizationClient
 import com.jeeves.shared.ai.GroqWhisperClient
 import com.jeeves.shared.ai.OllamaClient
+import com.jeeves.shared.ai.PromptTemplateManager
 import com.jeeves.shared.ai.WhisperClient
 import com.jeeves.shared.ai.formatWithSpeakers
 import com.jeeves.shared.ai.hasSpeakerLabels
@@ -59,7 +60,8 @@ class ProcessingQueue(
     private val recordingsRepository: RecordingsRepository,
     private val scope: CoroutineScope,
     private val groqClient: GroqWhisperClient? = null,
-    private val diarizationClient: DiarizationClient? = null
+    private val diarizationClient: DiarizationClient? = null,
+    private val promptTemplateManager: PromptTemplateManager? = null
 ) {
     private val _queue = MutableStateFlow<List<ProcessingItem>>(emptyList())
     val queue: StateFlow<List<ProcessingItem>> = _queue.asStateFlow()
@@ -238,11 +240,17 @@ class ProcessingQueue(
                 diarizedTranscription
             }
 
+            // Resolve effective prompt template for the recording's meeting template
+            val effectivePrompt = promptTemplateManager?.getEffectivePrompt(recording.template) ?: ""
+
             val summary = ollamaClient.summarize(
                 transcription = transcriptionForSummary,
                 config = settings.summarizationEndpoint,
                 description = recording.description,
-                attachmentCount = recording.attachments.size
+                attachmentCount = recording.attachments.size,
+                promptTemplate = effectivePrompt,
+                meetingTemplate = recording.template,
+                cloudLlmConfig = settings.cloudLlmConfig
             )
 
             recordingsRepository.saveSummary(summary)

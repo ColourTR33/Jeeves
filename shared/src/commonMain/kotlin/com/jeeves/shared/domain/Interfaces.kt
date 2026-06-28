@@ -39,7 +39,10 @@ interface SummarizationService {
         transcription: TranscriptionResult,
         config: AiEndpointConfig,
         description: String = "",
-        attachmentCount: Int = 0
+        attachmentCount: Int = 0,
+        promptTemplate: String = "",
+        meetingTemplate: MeetingTemplate = MeetingTemplate.GENERAL,
+        cloudLlmConfig: CloudLlmConfig? = null
     ): SummaryResult
 }
 
@@ -59,6 +62,7 @@ interface RecordingsRepository {
     suspend fun getRecordings(): List<Recording>
     suspend fun getRecording(id: String): Recording?
     suspend fun updateRecording(recording: Recording)
+    suspend fun updateRecordingNote(recordingId: String, note: String)
     suspend fun deleteRecording(id: String)
     suspend fun saveTranscription(result: TranscriptionResult)
     suspend fun getTranscription(recordingId: String): TranscriptionResult?

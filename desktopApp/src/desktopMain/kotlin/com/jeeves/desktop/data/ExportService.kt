@@ -14,16 +14,29 @@ enum class ExportFormat { MARKDOWN, TEXT }
 
 class ExportService {
 
+    /**
+     * Formats recording content for export without triggering file save dialog.
+     * Exposed as internal for testing purposes.
+     */
+    internal fun formatContent(
+        recording: Recording,
+        transcription: TranscriptionResult?,
+        summary: SummaryResult?,
+        format: ExportFormat
+    ): String {
+        return when (format) {
+            ExportFormat.MARKDOWN -> formatAsMarkdown(recording, transcription, summary)
+            ExportFormat.TEXT -> formatAsText(recording, transcription, summary)
+        }
+    }
+
     fun exportRecording(
         recording: Recording,
         transcription: TranscriptionResult?,
         summary: SummaryResult?,
         format: ExportFormat
     ): Boolean {
-        val content = when (format) {
-            ExportFormat.MARKDOWN -> formatAsMarkdown(recording, transcription, summary)
-            ExportFormat.TEXT -> formatAsText(recording, transcription, summary)
-        }
+        val content = formatContent(recording, transcription, summary, format)
 
         val extension = when (format) {
             ExportFormat.MARKDOWN -> "md"
@@ -86,6 +99,13 @@ class ExportService {
                 }
             }
 
+            if (recording.postRecordingNote.isNotBlank()) {
+                appendLine("## Notes")
+                appendLine()
+                appendLine(recording.postRecordingNote)
+                appendLine()
+            }
+
             if (transcription != null) {
                 appendLine("## Transcription")
                 appendLine()
@@ -134,6 +154,13 @@ class ExportService {
                     summary.actionItems.forEach { appendLine("☐ $it") }
                     appendLine()
                 }
+            }
+
+            if (recording.postRecordingNote.isNotBlank()) {
+                appendLine("NOTES")
+                appendLine("-".repeat(5))
+                appendLine(recording.postRecordingNote)
+                appendLine()
             }
 
             if (transcription != null) {
