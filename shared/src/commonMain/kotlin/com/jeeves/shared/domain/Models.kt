@@ -216,5 +216,11 @@ data class AppSettings(
      */
     val streamingTranscriptionEndpoint: AiEndpointConfig? = null,
     val promptTemplates: Map<MeetingTemplate, String> = emptyMap(),  // Custom prompt templates per meeting type
-    val cloudLlmConfig: CloudLlmConfig? = null  // Cloud LLM provider configuration (null = not configured)
+    val cloudLlmConfig: CloudLlmConfig? = null,  // Cloud LLM provider configuration (null = not configured)
+    // Sync configuration
+    val syncRemoteUrl: String = "",
+    val syncUsername: String = "",
+    val syncPassword: String = "",  // Encrypted at rest via credential encryption (task 12)
+    val syncEnabled: Boolean = false,
+    val syncAudioDownloadPolicy: String = "ON_DEMAND"  // ALWAYS, WIFI_ONLY, ON_DEMAND
 )

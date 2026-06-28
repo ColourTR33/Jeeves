@@ -15,6 +15,7 @@ import com.jeeves.desktop.time.TimeReminderService
 import com.jeeves.shared.domain.RecordingsRepository
 import com.jeeves.shared.domain.SettingsRepository
 import com.jeeves.shared.recording.RecordingManager
+import com.jeeves.shared.sync.SyncEngine
 import com.jeeves.shared.time.TimeTrackingManager
 
 /**
@@ -36,7 +37,8 @@ data class AppState(
     val calendarService: CalendarService,
     val timeManager: TimeTrackingManager,
     val reminderService: TimeReminderService,
-    val callDetector: com.jeeves.desktop.audio.CallDetector? = null
+    val callDetector: com.jeeves.desktop.audio.CallDetector? = null,
+    val syncEngine: SyncEngine? = null
 )
 
 val LocalAppState = compositionLocalOf<AppState> {

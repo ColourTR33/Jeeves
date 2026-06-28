@@ -16,6 +16,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.jeeves.desktop.hotkey.HotkeyManager
 import com.jeeves.desktop.ui.JeevesApp
 import com.jeeves.desktop.ui.appStateInstance
+import com.jeeves.desktop.ui.shutdownSync
 import com.jeeves.desktop.ui.components.AboutDialog
 import com.jeeves.desktop.ui.screens.LocalAppState
 import com.jeeves.desktop.ui.screens.SettingsScreen
@@ -27,6 +28,7 @@ fun main() = application {
 
     Window(
         onCloseRequest = {
+            shutdownSync()
             hotkeyManager.shutdown()
             exitApplication()
         },
@@ -42,6 +44,7 @@ fun main() = application {
                 )
                 Separator()
                 Item("Quit Jeeves", onClick = {
+                    shutdownSync()
                     hotkeyManager.shutdown()
                     exitApplication()
                 }, shortcut = KeyShortcut(key = Key.Q, meta = true))

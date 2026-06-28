@@ -14,6 +14,7 @@ import com.jeeves.desktop.ui.screens.LocalAppState
 import com.jeeves.desktop.ui.screens.RecordingScreen
 import com.jeeves.desktop.ui.screens.RecordingsListScreen
 import com.jeeves.desktop.ui.screens.TimeTrackingScreen
+import kotlinx.coroutines.launch
 
 enum class Screen {
     RECORDING,
@@ -25,6 +26,9 @@ enum class Screen {
 fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
     var currentScreen by remember { mutableStateOf(Screen.RECORDING) }
     val appState = LocalAppState.current
+
+    // Sync warning state: monitors lastSyncTimestamp and shows persistent warning after 1 hour
+    val syncWarningState = rememberSyncWarningState(syncEngine = appState.syncEngine)
 
     // Track window width for responsive compact mode
     val density = LocalDensity.current
@@ -112,7 +116,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Main content
-                    Column(modifier = Modifier.fillMaxSize().padding(bottom = if (bannerMessage != null) 40.dp else 0.dp)) {
+                    Column(modifier = Modifier.fillMaxSize().padding(bottom = if (bannerMessage != null || syncWarningState.shouldShow) 40.dp else 0.dp)) {
                         NavBar(currentScreen) { screen -> currentScreen = screen }
 
                         when (currentScreen) {
@@ -122,8 +126,12 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
                         }
                     }
 
-                    // Bottom notification banner
-                    Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                    // Bottom notification banners
+                    Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                        // Persistent sync warning banner (above main notification)
+                        SyncWarningBanner(syncWarningState)
+
+                        // Main notification banner
                         NotificationBanner(
                             message = bannerMessage,
                             type = bannerType,
@@ -152,9 +160,26 @@ private fun formatElapsedTime(seconds: Long): String {
 
 @Composable
 private fun NavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
+    val appState = LocalAppState.current
+    val syncEngine = appState.syncEngine
+
     NavigationBar {
         NavigationBarItem(icon = { }, label = { Text("Record") }, selected = currentScreen == Screen.RECORDING, onClick = { onNavigate(Screen.RECORDING) })
         NavigationBarItem(icon = { }, label = { Text("Recordings") }, selected = currentScreen == Screen.RECORDINGS_LIST, onClick = { onNavigate(Screen.RECORDINGS_LIST) })
         NavigationBarItem(icon = { }, label = { Text("Time") }, selected = currentScreen == Screen.TIME_TRACKING, onClick = { onNavigate(Screen.TIME_TRACKING) })
+
+        // Sync status indicator (shown only when sync is enabled)
+        if (syncEngine != null) {
+            val syncStatus by syncEngine.status.collectAsState()
+            val pendingChanges by syncEngine.pendingChanges.collectAsState()
+            val scope = rememberCoroutineScope()
+
+            SyncStatusIndicator(
+                syncStatus = syncStatus,
+                pendingChanges = pendingChanges,
+                onSyncNow = { scope.launch { syncEngine.syncNow() } },
+                modifier = Modifier.align(Alignment.CenterVertically).padding(end = 8.dp)
+            )
+        }
     }
 }

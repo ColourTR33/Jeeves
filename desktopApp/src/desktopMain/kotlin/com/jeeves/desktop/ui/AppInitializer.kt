@@ -7,6 +7,9 @@ import com.jeeves.desktop.audio.DesktopAudioRecorder
 import com.jeeves.desktop.audio.DesktopAudioPlayer
 import com.jeeves.desktop.audio.StreamingTranscriber
 import com.jeeves.desktop.data.CalendarService
+import com.jeeves.desktop.data.CouchDbRecordingsRepository
+import com.jeeves.desktop.data.CredentialEncryption
+import com.jeeves.desktop.data.DataMigrator
 import com.jeeves.desktop.data.EmailExportService
 import com.jeeves.desktop.data.ExportService
 import com.jeeves.desktop.data.FileRecordingsRepository
@@ -24,11 +27,22 @@ import com.jeeves.shared.ai.WhisperClient
 import com.jeeves.shared.ai.createHttpClient
 import com.jeeves.shared.domain.AppSettings
 import com.jeeves.shared.domain.AudioSource
+import com.jeeves.shared.domain.RecordingsRepository
 import com.jeeves.shared.recording.RecordingManager
 import com.jeeves.shared.recording.StreamingCallback
+import com.jeeves.shared.sync.AudioDownloadPolicy
+import com.jeeves.shared.sync.ConflictResolver
+import com.jeeves.shared.sync.CouchDbReplicator
+import com.jeeves.shared.sync.DefaultSyncEngine
+import com.jeeves.shared.sync.LocalDocumentStore
+import com.jeeves.shared.sync.SyncConfiguration
+import com.jeeves.shared.sync.SyncEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
+import java.io.File
+import java.util.UUID
 
 /**
  * Desktop implementation of StreamingCallback that bridges RecordingManager
@@ -68,6 +82,30 @@ var appStateInstance: com.jeeves.desktop.ui.screens.AppState? = null
     private set
 
 /**
+ * Gracefully shuts down the SyncEngine if running.
+ * Should be called on application exit.
+ */
+fun shutdownSync() {
+    val engine = appStateInstance?.syncEngine ?: return
+    runBlocking { engine.stop() }
+}
+
+/**
+ * Resolves the stable device UUID from the given file.
+ * If the file does not exist or is empty, generates a new UUID and persists it.
+ */
+private fun resolveDeviceId(deviceIdFile: File): String {
+    if (deviceIdFile.exists()) {
+        val stored = deviceIdFile.readText().trim()
+        if (stored.isNotEmpty()) return stored
+    }
+    val newId = UUID.randomUUID().toString()
+    deviceIdFile.parentFile?.mkdirs()
+    deviceIdFile.writeText(newId)
+    return newId
+}
+
+/**
  * Initializes all application dependencies and provides them via CompositionLocal.
  */
 @Composable
@@ -81,7 +119,58 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
         val whisperClient = WhisperClient(httpClient)
         val ollamaClient = OllamaClient(httpClient)
         val settingsRepository = FileSettingsRepository()
-        val recordingsRepository = FileRecordingsRepository()
+        val fileRecordingsRepository = FileRecordingsRepository()
+
+        // Load settings to determine sync configuration
+        val settings = runBlocking { settingsRepository.getSettings() }
+
+        // Determine the active RecordingsRepository and SyncEngine based on sync settings
+        val syncEngine: SyncEngine?
+        val recordingsRepository: RecordingsRepository
+
+        if (settings.syncEnabled && settings.syncRemoteUrl.isNotBlank()) {
+            // Sync enabled: set up CouchDB-backed components
+            val syncBaseDir = File(System.getProperty("user.home"), "Jeeves/sync")
+            val localStore = LocalDocumentStore(syncBaseDir)
+            val credentialEncryption = CredentialEncryption.createDefault()
+            val deviceIdFile = File(System.getProperty("user.home"), "Jeeves/.keys/device-id")
+
+            // Resolve device ID (read from file or generate new UUID)
+            val deviceId = resolveDeviceId(deviceIdFile)
+
+            // Create SyncEngine with proper conflict resolver
+            val conflictResolver = ConflictResolver(deviceId)
+            val replicator = CouchDbReplicator(httpClient, localStore, conflictResolver, credentialEncryption)
+            val engine = DefaultSyncEngine(replicator, localStore, httpClient, deviceIdFile, credentialEncryption)
+
+            // Run migration from SQLite if needed
+            val migrator = DataMigrator(fileRecordingsRepository, localStore, deviceId)
+            runBlocking { migrator.migrateIfNeeded() }
+
+            // Use CouchDB-backed repository
+            recordingsRepository = CouchDbRecordingsRepository(localStore, deviceId)
+
+            // Build SyncConfiguration from settings and start the engine
+            val audioPolicy = try {
+                AudioDownloadPolicy.valueOf(settings.syncAudioDownloadPolicy)
+            } catch (_: Exception) {
+                AudioDownloadPolicy.ON_DEMAND
+            }
+            val syncConfig = SyncConfiguration(
+                remoteUrl = settings.syncRemoteUrl,
+                username = settings.syncUsername,
+                encryptedPassword = settings.syncPassword,
+                enabled = true,
+                audioDownloadPolicy = audioPolicy,
+                deviceId = deviceId
+            )
+            runBlocking { engine.start(syncConfig) }
+            syncEngine = engine
+        } else {
+            // Sync disabled: use file-based repository as before
+            recordingsRepository = fileRecordingsRepository
+            syncEngine = null
+        }
 
         val streamingTranscriber = StreamingTranscriber(httpClient)
         val streamingCallback = DesktopStreamingCallback(streamingTranscriber, audioRecorder, scope)
@@ -145,7 +234,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             calendarService = calendarService,
             timeManager = timeManager,
             reminderService = reminderService,
-            callDetector = callDetector
+            callDetector = callDetector,
+            syncEngine = syncEngine
         )
     }
 

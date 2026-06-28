@@ -20,6 +20,9 @@ import com.jeeves.shared.domain.validateChunkInterval
 import com.jeeves.shared.domain.validateOverlapWindow
 import com.jeeves.shared.domain.validateOverlapLessThanInterval
 import com.jeeves.shared.ai.PromptTemplateManager
+import com.jeeves.shared.sync.ConnectionErrorType
+import com.jeeves.shared.sync.ConnectionTestResult
+import com.jeeves.shared.sync.SyncConfiguration
 import kotlinx.coroutines.launch
 import com.jeeves.desktop.audio.AudioInputDevice
 
@@ -859,6 +862,17 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Sync Configuration
+        SyncSettingsSection(
+            settings = settings,
+            onSettingsChange = { newSettings ->
+                settings = newSettings
+                isSaved = false
+            }
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // Save button
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -922,6 +936,275 @@ private fun EndpointSettings(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+        }
+    }
+}
+
+/**
+ * Formats a relative time string for sync timestamp display.
+ * Shows relative duration for <24h, absolute date/time for ≥24h.
+ */
+private fun formatSyncTimestamp(epochMillis: Long): String {
+    val now = System.currentTimeMillis()
+    val diffMs = now - epochMillis
+    val diffSeconds = diffMs / 1000
+    val diffMinutes = diffSeconds / 60
+    val diffHours = diffMinutes / 60
+    val twentyFourHoursMs = 24 * 60 * 60 * 1000L
+
+    return if (diffMs < twentyFourHoursMs) {
+        when {
+            diffSeconds < 60 -> "Just now"
+            diffMinutes < 60 -> "${diffMinutes} minute${if (diffMinutes != 1L) "s" else ""} ago"
+            else -> "${diffHours} hour${if (diffHours != 1L) "s" else ""} ago"
+        }
+    } else {
+        val instant = java.time.Instant.ofEpochMilli(epochMillis)
+        val dateTime = java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
+        val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+        dateTime.format(formatter)
+    }
+}
+
+/**
+ * Sync configuration section for the Settings screen.
+ * Provides input fields for CouchDB remote URL, username, password (masked),
+ * a "Test Connection" button, enable/disable toggle, audio download policy selector,
+ * and last successful sync timestamp.
+ *
+ * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 4.5, 6.4
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SyncSettingsSection(
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit
+) {
+    val appState = LocalAppState.current
+    val scope = rememberCoroutineScope()
+    val syncEngine = appState.syncEngine
+
+    // Local state for connection test
+    var connectionTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
+    var isTesting by remember { mutableStateOf(false) }
+
+    // Validation state for empty fields
+    var emptyFieldErrors by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    // Observe last sync timestamp from SyncEngine
+    val lastSyncTimestamp = syncEngine?.lastSyncTimestamp?.collectAsState()?.value
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Sync", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Enable/disable sync toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Enable synchronization")
+                Switch(
+                    checked = settings.syncEnabled,
+                    onCheckedChange = { enabled ->
+                        onSettingsChange(settings.copy(syncEnabled = enabled))
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Remote Database URL
+            OutlinedTextField(
+                value = settings.syncRemoteUrl,
+                onValueChange = { newValue ->
+                    onSettingsChange(settings.copy(syncRemoteUrl = newValue))
+                    emptyFieldErrors = emptyFieldErrors - "URL"
+                },
+                label = { Text("Remote Database URL") },
+                placeholder = { Text("https://couch.example.com/jeeves") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                isError = "URL" in emptyFieldErrors
+            )
+            if ("URL" in emptyFieldErrors) {
+                Text(
+                    text = "URL is required",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Username
+            OutlinedTextField(
+                value = settings.syncUsername,
+                onValueChange = { newValue ->
+                    onSettingsChange(settings.copy(syncUsername = newValue))
+                    emptyFieldErrors = emptyFieldErrors - "username"
+                },
+                label = { Text("Username") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                isError = "username" in emptyFieldErrors
+            )
+            if ("username" in emptyFieldErrors) {
+                Text(
+                    text = "Username is required",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Password (masked)
+            OutlinedTextField(
+                value = settings.syncPassword,
+                onValueChange = { newValue ->
+                    onSettingsChange(settings.copy(syncPassword = newValue))
+                    emptyFieldErrors = emptyFieldErrors - "password"
+                },
+                label = { Text("Password") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                isError = "password" in emptyFieldErrors
+            )
+            if ("password" in emptyFieldErrors) {
+                Text(
+                    text = "Password is required",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Test Connection button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = {
+                        // Validate empty fields first (Requirement 1.8)
+                        val config = SyncConfiguration(
+                            remoteUrl = settings.syncRemoteUrl,
+                            username = settings.syncUsername,
+                            encryptedPassword = settings.syncPassword,
+                            enabled = settings.syncEnabled
+                        )
+                        val missingFields = config.findEmptyFields()
+                        if (missingFields.isNotEmpty()) {
+                            emptyFieldErrors = missingFields
+                            connectionTestResult = null
+                            return@Button
+                        }
+                        emptyFieldErrors = emptyList()
+
+                        // Test the connection
+                        isTesting = true
+                        connectionTestResult = null
+                        scope.launch {
+                            try {
+                                val result = syncEngine?.testConnection(config)
+                                    ?: ConnectionTestResult(
+                                        success = false,
+                                        errorType = null,
+                                        message = "Sync engine not initialized"
+                                    )
+                                connectionTestResult = result
+                            } finally {
+                                isTesting = false
+                            }
+                        }
+                    },
+                    enabled = !isTesting
+                ) {
+                    if (isTesting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text("Test Connection")
+                }
+
+                // Connection test result feedback
+                connectionTestResult?.let { result ->
+                    if (result.success) {
+                        Text(
+                            "✓ Connected successfully",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else {
+                        val errorText = when (result.errorType) {
+                            ConnectionErrorType.INVALID_URL -> "Invalid URL format"
+                            ConnectionErrorType.NETWORK_UNREACHABLE -> "Network unreachable"
+                            ConnectionErrorType.AUTHENTICATION_FAILED -> "Authentication failed"
+                            ConnectionErrorType.TLS_ERROR -> "TLS certificate error"
+                            ConnectionErrorType.TIMEOUT -> "Connection timed out"
+                            null -> result.message
+                        }
+                        Text(
+                            "✗ $errorText",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Divider()
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Audio download policy selector (Requirement 4.5)
+            Text("Audio Download Policy", style = MaterialTheme.typography.titleSmall)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val audioDownloadPolicies = listOf(
+                "ALWAYS" to "Always download",
+                "WIFI_ONLY" to "Download on Wi-Fi only",
+                "ON_DEMAND" to "Download on demand"
+            )
+
+            audioDownloadPolicies.forEach { (value, label) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = settings.syncAudioDownloadPolicy == value,
+                        onClick = {
+                            onSettingsChange(settings.copy(syncAudioDownloadPolicy = value))
+                        }
+                    )
+                    Text(label, modifier = Modifier.padding(start = 4.dp))
+                }
+            }
+
+            // Last successful sync timestamp (Requirement 6.4)
+            val displayTimestamp = lastSyncTimestamp
+            if (displayTimestamp != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Divider()
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Last synced: ${formatSyncTimestamp(displayTimestamp)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
