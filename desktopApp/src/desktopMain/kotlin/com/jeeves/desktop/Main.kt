@@ -16,12 +16,14 @@ import androidx.compose.ui.window.rememberWindowState
 import com.jeeves.desktop.hotkey.HotkeyManager
 import com.jeeves.desktop.ui.JeevesApp
 import com.jeeves.desktop.ui.appStateInstance
+import com.jeeves.desktop.ui.components.AboutDialog
 import com.jeeves.desktop.ui.screens.LocalAppState
 import com.jeeves.desktop.ui.screens.SettingsScreen
 
 fun main() = application {
     val hotkeyManager = HotkeyManager()
     var showSettings by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
 
     Window(
         onCloseRequest = {
@@ -33,6 +35,8 @@ fun main() = application {
     ) {
         MenuBar {
             Menu("Jeeves") {
+                Item("About Jeeves", onClick = { showAbout = true })
+                Separator()
                 Item("Settings...", onClick = { showSettings = true },
                     shortcut = KeyShortcut(key = Key.Comma, meta = true)
                 )
@@ -42,6 +46,10 @@ fun main() = application {
                     exitApplication()
                 }, shortcut = KeyShortcut(key = Key.Q, meta = true))
             }
+        }
+
+        if (showAbout) {
+            AboutDialog(onDismiss = { showAbout = false })
         }
 
         JeevesApp(hotkeyManager, onOpenSettings = { showSettings = true })

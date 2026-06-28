@@ -45,7 +45,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Jeeves"
-            packageVersion = "1.0.0"
+            packageVersion = "1.1.0"
             description = "Meeting recorder, transcriber and summariser"
             vendor = "Jeeves"
 
