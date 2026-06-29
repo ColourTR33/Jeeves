@@ -100,6 +100,13 @@ class TimeTrackingManager(
         }
     }
 
+    fun updateProject(project: Project) {
+        scope.launch {
+            repository.saveProject(project)
+            _projects.value = repository.getProjects()
+        }
+    }
+
     fun deleteProject(id: String) {
         scope.launch { repository.deleteProject(id); _projects.value = repository.getProjects() }
     }

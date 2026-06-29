@@ -17,7 +17,14 @@ data class Project(
     val isDistributed: Boolean = false,
     val color: String = "#4A90D9",
     /** Default weekly target hours for this project (used when no specific plan is set). */
-    val defaultTargetHours: Double = 0.0
+    val defaultTargetHours: Double = 0.0,
+    // Project metadata
+    val tdmName: String = "",           // Technical Delivery Manager
+    val contactName: String = "",       // Main contact
+    val companyName: String = "",       // Client company
+    val softwareVersions: List<String> = emptyList(),  // Software versions used
+    val startDate: String = "",         // YYYY-MM-DD
+    val endDate: String = ""            // YYYY-MM-DD
 )
 
 @Serializable

@@ -126,12 +126,12 @@ fun TimeTrackingScreen() {
 
         Spacer(Modifier.height(8.dp))
 
-        // Tabs: Timesheet | Burndown | Plan | Work Plan
+        // Tabs: Timesheet | Burndown | Projects | Backlog
         TabRow(selectedTabIndex = selectedTab) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Timesheet") })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Burndown") })
-            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Plan") })
-            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Work Plan") })
+            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Projects") })
+            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Backlog") })
         }
 
         Spacer(Modifier.height(12.dp))
@@ -141,7 +141,7 @@ fun TimeTrackingScreen() {
             0 -> TimesheetTab(weeklyTimesheet, scope, appState, currentWeekDate, distributionPreview, showDistribution,
                 onShowDistribution = { preview, show -> distributionPreview = preview; showDistribution = show })
             1 -> BurndownTab(weeklyBurndown, projects)
-            2 -> PlanTab(weeklyPlan, projects, scope, appState, currentWeekDate, weekOffset,
+            2 -> ProjectsTab(projects, scope, appState, currentWeekDate, weeklyPlan, weekOffset,
                 onPlanSaved = { scope.launch { weeklyPlan = appState.timeManager.getWeeklyPlan(currentWeekDate) } })
             3 -> WorkPlanTab(projects, scope, appState, currentWeekDate, weeklyPlan)
         }
@@ -515,129 +515,204 @@ private fun BurndownChart(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlanTab(
-    weeklyPlan: WeeklyPlan?,
+private fun ProjectsTab(
     projects: List<Project>,
     scope: kotlinx.coroutines.CoroutineScope,
     appState: AppState,
     currentWeekDate: String,
+    weeklyPlan: WeeklyPlan?,
     weekOffset: Int,
     onPlanSaved: () -> Unit
 ) {
-    val billableProjects = projects.filter { !it.isDistributed }
-    var editTargets by remember(weeklyPlan) {
-        mutableStateOf(
-            billableProjects.associate { proj ->
-                proj.id to (weeklyPlan?.targets?.find { it.projectId == proj.id }?.targetHours ?: proj.defaultTargetHours)
+    var showProjectModal by remember { mutableStateOf(false) }
+    var editingProject by remember { mutableStateOf<Project?>(null) }
+
+    Row(Modifier.fillMaxSize()) {
+        // Left: Project list with CRUD
+        Column(Modifier.weight(0.5f)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Projects", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                OutlinedButton(onClick = { editingProject = null; showProjectModal = true }, modifier = Modifier.height(32.dp)) {
+                    Icon(Icons.Filled.Add, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("Add Project", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+
+            LazyColumn(Modifier.weight(1f)) {
+                items(projects) { project ->
+                    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { editingProject = project; showProjectModal = true },
+                        shape = RoundedCornerShape(6.dp)) {
+                        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(10.dp).clip(CircleShape).background(hexToColor(project.color)))
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(project.name, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                if (project.companyName.isNotEmpty()) Text(project.companyName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (project.isBillable) Text("Billable", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            if (project.isDistributed) Text("Admin", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                            Spacer(Modifier.width(4.dp))
+                            IconButton(onClick = { appState.timeManager.deleteProject(project.id) }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Filled.Close, "Delete", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.width(16.dp))
+
+        // Right: Weekly hour targets
+        Column(Modifier.weight(0.5f)) {
+            val billableProjects = projects.filter { !it.isDistributed }
+            var editTargets by remember(weeklyPlan) {
+                mutableStateOf(billableProjects.associate { proj ->
+                    proj.id to (weeklyPlan?.targets?.find { it.projectId == proj.id }?.targetHours ?: proj.defaultTargetHours)
+                })
+            }
+            val totalPlanned = editTargets.values.sum()
+            val totalTarget = weeklyPlan?.totalTargetHours ?: 40.0
+
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Weekly Hour Targets", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("${String.format("%.1f", totalPlanned)} / ${String.format("%.0f", totalTarget)}h",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (totalPlanned > totalTarget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(Modifier.height(12.dp))
+
+                    billableProjects.forEach { project ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(hexToColor(project.color)))
+                            Spacer(Modifier.width(6.dp))
+                            Text(project.name, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            OutlinedTextField(
+                                value = String.format("%.1f", editTargets[project.id] ?: 0.0),
+                                onValueChange = { text -> text.toDoubleOrNull()?.let { editTargets = editTargets + (project.id to it) } },
+                                modifier = Modifier.width(70.dp), singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                suffix = { Text("h", style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            scope.launch {
+                                val targets = editTargets.filter { it.value > 0 }.map { (pid, hrs) -> ProjectWeeklyTarget(pid, hrs) }
+                                val plan = WeeklyPlan(weekStartDate = weeklyPlan?.weekStartDate ?: currentWeekDate, targets = targets, totalTargetHours = totalTarget)
+                                appState.timeManager.saveWeeklyPlan(plan)
+                                onPlanSaved()
+                            }
+                        }) { Text("Save") }
+                        if (weekOffset <= 0) {
+                            OutlinedButton(onClick = {
+                                scope.launch {
+                                    val targets = editTargets.filter { it.value > 0 }.map { (pid, hrs) -> ProjectWeeklyTarget(pid, hrs) }
+                                    for (i in 1..4) {
+                                        val futureEpoch = System.currentTimeMillis() + ((weekOffset + i).toLong() * 7 * 86_400_000)
+                                        val futureDate = TimeTrackingManager.epochToDateString(futureEpoch)
+                                        appState.timeManager.saveWeeklyPlan(WeeklyPlan(weekStartDate = futureDate, targets = targets, totalTargetHours = totalTarget))
+                                    }
+                                    onPlanSaved()
+                                }
+                            }) { Text("Copy → 4 weeks") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Project add/edit modal
+    if (showProjectModal) {
+        ProjectEditDialog(
+            project = editingProject,
+            onDismiss = { showProjectModal = false },
+            onSave = { project ->
+                if (editingProject != null) {
+                    appState.timeManager.updateProject(project)
+                } else {
+                    appState.timeManager.updateProject(project)
+                }
+                showProjectModal = false
             }
         )
     }
+}
 
-    val totalPlanned = editTargets.values.sum()
-    val totalTarget = weeklyPlan?.totalTargetHours ?: 40.0
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProjectEditDialog(project: Project?, onDismiss: () -> Unit, onSave: (Project) -> Unit) {
+    val isNew = project == null
+    var name by remember { mutableStateOf(project?.name ?: "") }
+    var companyName by remember { mutableStateOf(project?.companyName ?: "") }
+    var tdmName by remember { mutableStateOf(project?.tdmName ?: "") }
+    var contactName by remember { mutableStateOf(project?.contactName ?: "") }
+    var softwareVersionsText by remember { mutableStateOf(project?.softwareVersions?.joinToString(", ") ?: "") }
+    var startDate by remember { mutableStateOf(project?.startDate ?: "") }
+    var endDate by remember { mutableStateOf(project?.endDate ?: "") }
+    var isBillable by remember { mutableStateOf(project?.isBillable ?: true) }
+    var isDistributed by remember { mutableStateOf(project?.isDistributed ?: false) }
+    var color by remember { mutableStateOf(project?.color ?: "#4A90D9") }
+    var defaultTargetHours by remember { mutableStateOf(project?.defaultTargetHours?.toString() ?: "0") }
 
-    Column(Modifier.fillMaxSize()) {
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
-            Column(Modifier.padding(16.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Project Hour Targets", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Text(
-                        "${String.format("%.1f", totalPlanned)} / ${String.format("%.0f", totalTarget)}h planned",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (totalPlanned > totalTarget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-
-                billableProjects.forEach { project ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(hexToColor(project.color)))
-                        Spacer(Modifier.width(8.dp))
-                        Text(project.name, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                        Spacer(Modifier.width(8.dp))
-                        OutlinedTextField(
-                            value = String.format("%.1f", editTargets[project.id] ?: 0.0),
-                            onValueChange = { text ->
-                                text.toDoubleOrNull()?.let { editTargets = editTargets + (project.id to it) }
-                            },
-                            modifier = Modifier.width(80.dp),
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.bodySmall,
-                            suffix = { Text("h", style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(16.dp))
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isNew) "Add Project" else "Edit Project") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(name, { name = it }, label = { Text("Project Name *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(companyName, { companyName = it }, label = { Text("Company Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(tdmName, { tdmName = it }, label = { Text("TDM (Technical Delivery Manager)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(contactName, { contactName = it }, label = { Text("Main Contact") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(softwareVersionsText, { softwareVersionsText = it }, label = { Text("Software Versions (comma-separated)") }, singleLine = false, modifier = Modifier.fillMaxWidth(), maxLines = 3)
+                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        scope.launch {
-                            val targets = editTargets.filter { it.value > 0 }.map { (pid, hrs) -> ProjectWeeklyTarget(pid, hrs) }
-                            val plan = WeeklyPlan(
-                                weekStartDate = weeklyPlan?.weekStartDate ?: currentWeekDate,
-                                targets = targets,
-                                totalTargetHours = totalTarget
-                            )
-                            appState.timeManager.saveWeeklyPlan(plan)
-                            onPlanSaved()
-                        }
-                    }) { Text("Save Plan") }
-
-                    if (weekOffset <= 0) {
-                        // Only show "Copy to next weeks" for current or past weeks
-                        OutlinedButton(onClick = {
-                            scope.launch {
-                                val targets = editTargets.filter { it.value > 0 }.map { (pid, hrs) -> ProjectWeeklyTarget(pid, hrs) }
-                                // Copy plan to next 4 weeks
-                                for (i in 1..4) {
-                                    val futureEpoch = System.currentTimeMillis() + ((weekOffset + i).toLong() * 7 * 86_400_000)
-                                    val futureDate = TimeTrackingManager.epochToDateString(futureEpoch)
-                                    val plan = WeeklyPlan(weekStartDate = futureDate, targets = targets, totalTargetHours = totalTarget)
-                                    appState.timeManager.saveWeeklyPlan(plan)
-                                }
-                                onPlanSaved()
-                            }
-                        }) { Text("Copy to next 4 weeks") }
-                    }
+                    OutlinedTextField(startDate, { startDate = it }, label = { Text("Start Date") }, singleLine = true, modifier = Modifier.weight(1f), placeholder = { Text("YYYY-MM-DD") })
+                    OutlinedTextField(endDate, { endDate = it }, label = { Text("End Date") }, singleLine = true, modifier = Modifier.weight(1f), placeholder = { Text("YYYY-MM-DD") })
                 }
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(defaultTargetHours, { defaultTargetHours = it }, label = { Text("Default Weekly Hours") }, singleLine = true, modifier = Modifier.width(120.dp))
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(isBillable, { isBillable = it; if (it) isDistributed = false }); Text("Billable") }
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(isDistributed, { isDistributed = it; if (it) isBillable = false }); Text("Distributed (Admin/Email)") }
             }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // Forward planning overview (4 weeks)
-        Text("Forward Plan Overview", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        var allPlans by remember { mutableStateOf<List<WeeklyPlan>>(emptyList()) }
-        LaunchedEffect(weeklyPlan) { allPlans = appState.timeManager.getAllWeeklyPlans() }
-
-        if (allPlans.isEmpty()) {
-            Text("No forward plans set. Use the form above to plan project hours.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(Modifier.fillMaxWidth()) {
-                        Text("Week", Modifier.weight(1.5f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        billableProjects.take(5).forEach { p ->
-                            Text(p.name.take(8), Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1)
-                        }
-                        Text("Total", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    }
-                    Divider(Modifier.padding(vertical = 4.dp))
-                    allPlans.sortedBy { it.weekStartDate }.takeLast(8).forEach { plan ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                            Text(plan.weekStartDate.substring(5), Modifier.weight(1.5f), style = MaterialTheme.typography.bodySmall)
-                            billableProjects.take(5).forEach { p ->
-                                val h = plan.targets.find { it.projectId == p.id }?.targetHours ?: 0.0
-                                Text(if (h > 0) String.format("%.0f", h) else "-", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            }
-                            Text(String.format("%.0f", plan.targets.sumOf { it.targetHours }), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                        }
-                    }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (name.isNotBlank()) {
+                    val versions = softwareVersionsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    val result = (project ?: Project(
+                        id = com.jeeves.shared.recording.generateId(),
+                        name = name
+                    )).copy(
+                        name = name,
+                        companyName = companyName,
+                        tdmName = tdmName,
+                        contactName = contactName,
+                        softwareVersions = versions,
+                        startDate = startDate,
+                        endDate = endDate,
+                        isBillable = isBillable,
+                        isDistributed = isDistributed,
+                        color = color,
+                        defaultTargetHours = defaultTargetHours.toDoubleOrNull() ?: 0.0
+                    )
+                    onSave(result)
                 }
-            }
-        }
-    }
+            }) { Text(if (isNew) "Add" else "Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 // ─── Manual Time Entry Dialog ───────────────────────────────────────────────────
