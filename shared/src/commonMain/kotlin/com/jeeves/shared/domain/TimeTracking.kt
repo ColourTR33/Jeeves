@@ -150,4 +150,75 @@ interface TimeTrackingRepository {
     suspend fun deleteWeeklyPlan(weekStartDate: String)
     /** Get all weekly plans (for forward planning view). */
     suspend fun getAllWeeklyPlans(): List<WeeklyPlan>
+
+    // Backlog & Sprint planning
+    suspend fun getBacklogItems(projectId: String): List<BacklogItem>
+    suspend fun saveBacklogItems(projectId: String, items: List<BacklogItem>)
+    suspend fun getSprintItems(weekStartDate: String): List<SprintItem>
+    suspend fun saveSprintItems(weekStartDate: String, items: List<SprintItem>)
+}
+
+// ─── Backlog & Sprint Models ────────────────────────────────────────────────────
+
+/**
+ * Status of a backlog item through its lifecycle.
+ */
+@Serializable
+enum class BacklogStatus {
+    /** In the backlog, not yet planned for any week */
+    BACKLOG,
+    /** Accepted into a weekly sprint (allocated time) */
+    PLANNED,
+    /** Currently being worked on (countdown running) */
+    IN_PROGRESS,
+    /** Completed */
+    DONE
+}
+
+/**
+ * A work item in a project's backlog.
+ * Items are ordered by priority (lower number = higher priority).
+ */
+@Serializable
+data class BacklogItem(
+    val id: String,
+    val projectId: String,
+    val title: String,
+    val description: String = "",
+    val priority: Int = 100,  // lower = higher priority
+    val estimateMinutes: Int = 60,  // estimated time to complete
+    val status: BacklogStatus = BacklogStatus.BACKLOG,
+    val createdAt: Long = 0,
+    val completedAt: Long? = null
+)
+
+/**
+ * A backlog item that has been accepted into a weekly sprint.
+ * Tracks allocated time budget and elapsed time against it.
+ */
+@Serializable
+data class SprintItem(
+    val id: String,
+    val backlogItemId: String,
+    val projectId: String,
+    val weekStartDate: String,
+    val title: String,
+    val allocatedMinutes: Int,  // time budget for this week (from estimate or manual override)
+    val elapsedMinutes: Int = 0,  // time spent so far
+    val isActive: Boolean = false,  // currently being worked on (countdown running)
+    val activeStartTime: Long? = null  // epoch ms when countdown started (null = paused/stopped)
+) {
+    /** Minutes remaining on the budget. Can go negative (overrun). */
+    val remainingMinutes: Int get() = allocatedMinutes - elapsedMinutes
+
+    /** Effective remaining accounting for currently-running time. */
+    fun effectiveRemainingMinutes(nowMs: Long): Int {
+        val runningExtra = if (isActive && activeStartTime != null) {
+            ((nowMs - activeStartTime) / 60_000).toInt()
+        } else 0
+        return allocatedMinutes - elapsedMinutes - runningExtra
+    }
+
+    /** Whether this item is over budget. */
+    fun isOverrun(nowMs: Long): Boolean = effectiveRemainingMinutes(nowMs) < 0
 }

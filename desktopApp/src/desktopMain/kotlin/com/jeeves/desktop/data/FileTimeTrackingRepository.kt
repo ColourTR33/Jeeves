@@ -95,6 +95,24 @@ class FileTimeTrackingRepository : TimeTrackingRepository {
     override suspend fun getAllWeeklyPlans(): List<WeeklyPlan> =
         readList(plansFile) { json.decodeFromString<WPList>(it).items }
 
+    // Backlog & Sprint
+    private fun backlogFile(projectId: String) = File(timeDir, "backlog_$projectId.json")
+    private fun sprintFile(weekStartDate: String) = File(timeDir, "sprint_$weekStartDate.json")
+
+    override suspend fun getBacklogItems(projectId: String): List<BacklogItem> =
+        readList(backlogFile(projectId)) { json.decodeFromString<BLList>(it).items }
+
+    override suspend fun saveBacklogItems(projectId: String, items: List<BacklogItem>) {
+        backlogFile(projectId).writeText(json.encodeToString(BLList.serializer(), BLList(items)))
+    }
+
+    override suspend fun getSprintItems(weekStartDate: String): List<SprintItem> =
+        readList(sprintFile(weekStartDate)) { json.decodeFromString<SIList>(it).items }
+
+    override suspend fun saveSprintItems(weekStartDate: String, items: List<SprintItem>) {
+        sprintFile(weekStartDate).writeText(json.encodeToString(SIList.serializer(), SIList(items)))
+    }
+
     private fun <T> readList(file: File, parse: (String) -> List<T>): List<T> = try { if (file.exists()) parse(file.readText()) else emptyList() } catch (_: Exception) { emptyList() }
 
     private fun addDay(d: String): String {
@@ -111,3 +129,5 @@ class FileTimeTrackingRepository : TimeTrackingRepository {
 @Serializable data class CList(val items: List<Client>)
 @Serializable data class EList(val items: List<TimeEntry>)
 @Serializable data class WPList(val items: List<WeeklyPlan>)
+@Serializable data class BLList(val items: List<BacklogItem>)
+@Serializable data class SIList(val items: List<SprintItem>)

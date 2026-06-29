@@ -124,11 +124,12 @@ fun TimeTrackingScreen() {
 
         Spacer(Modifier.height(8.dp))
 
-        // Tabs: Timesheet | Burndown | Plan
+        // Tabs: Timesheet | Burndown | Plan | Work Plan
         TabRow(selectedTabIndex = selectedTab) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Timesheet") })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Burndown") })
             Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Plan") })
+            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Work Plan") })
         }
 
         Spacer(Modifier.height(12.dp))
@@ -140,6 +141,7 @@ fun TimeTrackingScreen() {
             1 -> BurndownTab(weeklyBurndown, projects)
             2 -> PlanTab(weeklyPlan, projects, scope, appState, currentWeekDate, weekOffset,
                 onPlanSaved = { scope.launch { weeklyPlan = appState.timeManager.getWeeklyPlan(currentWeekDate) } })
+            3 -> WorkPlanTab(projects, scope, appState, currentWeekDate, weeklyPlan)
         }
     }
 
@@ -574,6 +576,324 @@ private fun PlanTab(
             }
         }
     }
+}
+
+// ─── Work Plan Tab ──────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WorkPlanTab(
+    projects: List<Project>,
+    scope: kotlinx.coroutines.CoroutineScope,
+    appState: AppState,
+    currentWeekDate: String,
+    weeklyPlan: WeeklyPlan?
+) {
+    val billableProjects = projects.filter { !it.isDistributed }
+    var selectedProjectId by remember { mutableStateOf(billableProjects.firstOrNull()?.id ?: "") }
+    var backlogItems by remember { mutableStateOf<List<BacklogItem>>(emptyList()) }
+    var sprintItems by remember { mutableStateOf<List<SprintItem>>(emptyList()) }
+    var showAddItem by remember { mutableStateOf(false) }
+
+    val activeSprintItem by appState.timeManager.activeSprintItem.collectAsState()
+    var timerTick by remember { mutableStateOf(0L) }
+
+    // Refresh timer for active countdown
+    LaunchedEffect(activeSprintItem) {
+        while (isActive && activeSprintItem?.isActive == true) { delay(1000); timerTick = System.currentTimeMillis() }
+    }
+
+    // Load data when project or week changes
+    LaunchedEffect(selectedProjectId, currentWeekDate) {
+        if (selectedProjectId.isNotEmpty()) {
+            backlogItems = appState.timeManager.getBacklog(selectedProjectId)
+        }
+        sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate)
+    }
+
+    Row(Modifier.fillMaxSize()) {
+        // Left panel: Backlog + Sprint for selected project
+        Column(Modifier.weight(0.55f)) {
+            // Project selector
+            var projExpanded by remember { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ExposedDropdownMenuBox(expanded = projExpanded, onExpandedChange = { projExpanded = it }, modifier = Modifier.width(220.dp)) {
+                    OutlinedTextField(
+                        value = billableProjects.find { it.id == selectedProjectId }?.name ?: "Select project",
+                        onValueChange = {}, readOnly = true,
+                        label = { Text("Project") }, modifier = Modifier.menuAnchor(), singleLine = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(projExpanded) }
+                    )
+                    ExposedDropdownMenu(projExpanded, { projExpanded = false }) {
+                        billableProjects.forEach { p ->
+                            DropdownMenuItem(
+                                text = { Text(p.name) },
+                                onClick = { selectedProjectId = p.id; projExpanded = false },
+                                leadingIcon = { Box(Modifier.size(10.dp).clip(CircleShape).background(hexToColor(p.color))) }
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                val allocated = weeklyPlan?.targets?.find { it.projectId == selectedProjectId }?.targetHours ?: 0.0
+                val sprintPlanned = sprintItems.filter { it.projectId == selectedProjectId }.sumOf { it.allocatedMinutes }
+                Text("${String.format("%.0f", allocated)}h allocated · ${sprintPlanned / 60}h ${sprintPlanned % 60}m planned",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Backlog section
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Backlog", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { showAddItem = true }, modifier = Modifier.height(32.dp)) {
+                        Icon(Icons.Filled.Add, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("Add", style = MaterialTheme.typography.labelSmall)
+                    }
+                    OutlinedButton(onClick = {
+                        appState.timeManager.autoFitBacklogToSprint(selectedProjectId, currentWeekDate)
+                        scope.launch {
+                            delay(200)
+                            backlogItems = appState.timeManager.getBacklog(selectedProjectId)
+                            sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate)
+                        }
+                    }, modifier = Modifier.height(32.dp)) {
+                        Icon(Icons.Filled.AutoFixHigh, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("Auto-Fit", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+
+            val unplannedItems = backlogItems.filter { it.status == BacklogStatus.BACKLOG }
+            if (unplannedItems.isEmpty()) {
+                Text("No items in backlog. Add tasks to plan your work.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                LazyColumn(Modifier.weight(1f)) {
+                    items(unplannedItems) { item ->
+                        BacklogItemRow(item,
+                            onAccept = {
+                                appState.timeManager.acceptIntoSprint(selectedProjectId, listOf(item.id), currentWeekDate)
+                                scope.launch {
+                                    delay(200)
+                                    backlogItems = appState.timeManager.getBacklog(selectedProjectId)
+                                    sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate)
+                                }
+                            },
+                            onDelete = {
+                                appState.timeManager.deleteBacklogItem(selectedProjectId, item.id)
+                                scope.launch { delay(100); backlogItems = appState.timeManager.getBacklog(selectedProjectId) }
+                            },
+                            onMoveUp = {
+                                val idx = unplannedItems.indexOf(item)
+                                if (idx > 0) {
+                                    appState.timeManager.reorderBacklog(selectedProjectId, item.id, idx - 1)
+                                    scope.launch { delay(100); backlogItems = appState.timeManager.getBacklog(selectedProjectId) }
+                                }
+                            },
+                            onMoveDown = {
+                                val idx = unplannedItems.indexOf(item)
+                                if (idx < unplannedItems.size - 1) {
+                                    appState.timeManager.reorderBacklog(selectedProjectId, item.id, idx + 1)
+                                    scope.launch { delay(100); backlogItems = appState.timeManager.getBacklog(selectedProjectId) }
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.width(16.dp))
+
+        // Right panel: Sprint (accepted items) + Active task countdown
+        Column(Modifier.weight(0.45f)) {
+            // Active task countdown
+            activeSprintItem?.let { active ->
+                val remaining = active.effectiveRemainingMinutes(timerTick)
+                val isOverrun = remaining < 0
+                Card(
+                    Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isOverrun) MaterialTheme.colorScheme.errorContainer
+                        else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                    )
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Active Task", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(active.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 2)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    if (isOverrun) "-${fmtMins(-remaining)}" else fmtMins(remaining),
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isOverrun) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                )
+                                Text(if (isOverrun) "OVERRUN" else "remaining", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(onClick = { appState.timeManager.stopSprintTask(currentWeekDate) }) {
+                                Icon(Icons.Filled.Pause, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Pause")
+                            }
+                            FilledTonalButton(onClick = {
+                                appState.timeManager.completeSprintTask(active.id, currentWeekDate)
+                                scope.launch { delay(200); sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate) }
+                            }) {
+                                Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Done")
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // Sprint items for this week
+            Text("This Week's Sprint", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+
+            val projectSprint = sprintItems.filter { it.projectId == selectedProjectId }
+            if (projectSprint.isEmpty()) {
+                Text("No tasks planned. Accept items from the backlog or use Auto-Fit.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                LazyColumn {
+                    items(projectSprint) { item ->
+                        SprintItemRow(item, timerTick,
+                            onStart = {
+                                appState.timeManager.startSprintTask(item.id, currentWeekDate)
+                                scope.launch { delay(200); sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate) }
+                            },
+                            onComplete = {
+                                appState.timeManager.completeSprintTask(item.id, currentWeekDate)
+                                scope.launch { delay(200); sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate) }
+                            },
+                            onRemove = {
+                                appState.timeManager.removeFromSprint(item.id, currentWeekDate)
+                                scope.launch {
+                                    delay(200)
+                                    sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate)
+                                    backlogItems = appState.timeManager.getBacklog(selectedProjectId)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Add backlog item dialog
+    if (showAddItem) {
+        var title by remember { mutableStateOf("") }
+        var desc by remember { mutableStateOf("") }
+        var estimate by remember { mutableStateOf("60") }
+        AlertDialog(
+            onDismissRequest = { showAddItem = false },
+            title = { Text("Add Backlog Item") },
+            text = {
+                Column {
+                    OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(desc, { desc = it }, label = { Text("Description (optional)") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(estimate, { estimate = it }, label = { Text("Estimate (minutes)") }, singleLine = true, modifier = Modifier.width(150.dp))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (title.isNotBlank()) {
+                        appState.timeManager.addBacklogItem(selectedProjectId, title, desc, estimate.toIntOrNull() ?: 60)
+                        scope.launch { delay(200); backlogItems = appState.timeManager.getBacklog(selectedProjectId) }
+                        showAddItem = false
+                    }
+                }) { Text("Add") }
+            },
+            dismissButton = { TextButton(onClick = { showAddItem = false }) { Text("Cancel") } }
+        )
+    }
+}
+
+@Composable
+private fun BacklogItemRow(
+    item: BacklogItem,
+    onAccept: () -> Unit,
+    onDelete: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit
+) {
+    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp), shape = RoundedCornerShape(6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Priority arrows
+            Column {
+                IconButton(onClick = onMoveUp, modifier = Modifier.size(20.dp)) { Icon(Icons.Filled.KeyboardArrowUp, "Move up", Modifier.size(14.dp)) }
+                IconButton(onClick = onMoveDown, modifier = Modifier.size(20.dp)) { Icon(Icons.Filled.KeyboardArrowDown, "Move down", Modifier.size(14.dp)) }
+            }
+            Spacer(Modifier.width(6.dp))
+            Column(Modifier.weight(1f)) {
+                Text(item.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1)
+                if (item.description.isNotEmpty()) Text(item.description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+            Spacer(Modifier.width(6.dp))
+            Text("${item.estimateMinutes}m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = onAccept, modifier = Modifier.size(28.dp)) { Icon(Icons.Filled.ArrowForward, "Accept", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary) }
+            IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) { Icon(Icons.Filled.Close, "Delete", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) }
+        }
+    }
+}
+
+@Composable
+private fun SprintItemRow(
+    item: SprintItem,
+    nowMs: Long,
+    onStart: () -> Unit,
+    onComplete: () -> Unit,
+    onRemove: () -> Unit
+) {
+    val remaining = item.effectiveRemainingMinutes(nowMs)
+    val isOverrun = remaining < 0
+    val isDone = item.elapsedMinutes >= item.allocatedMinutes && !item.isActive
+
+    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp), shape = RoundedCornerShape(6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                item.isActive -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                isOverrun -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                else -> MaterialTheme.colorScheme.surface
+            }
+        )
+    ) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(item.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1)
+                Text("${item.elapsedMinutes}m / ${item.allocatedMinutes}m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            // Remaining indicator
+            Text(
+                if (isOverrun) "-${fmtMins(-remaining)}" else fmtMins(remaining),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (isOverrun) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(6.dp))
+            if (!item.isActive) {
+                IconButton(onClick = onStart, modifier = Modifier.size(28.dp)) { Icon(Icons.Filled.PlayArrow, "Start", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) }
+            }
+            IconButton(onClick = onComplete, modifier = Modifier.size(28.dp)) { Icon(Icons.Filled.CheckCircle, "Done", Modifier.size(16.dp), tint = Color(0xFF4CAF50)) }
+            IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) { Icon(Icons.Filled.Close, "Remove", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) }
+        }
+    }
+}
+
+private fun fmtMins(minutes: Int): String {
+    val h = minutes / 60
+    val m = minutes % 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m"
 }
 
 // ─── Shared Components ──────────────────────────────────────────────────────────

@@ -45,19 +45,12 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Jeeves"
-            packageVersion = "1.1.0"
+            packageVersion = "1.2.0"
             description = "Meeting recorder, transcriber and summariser"
             vendor = "Jeeves"
 
             // Include all JVM modules needed by the app and its dependencies
-            modules(
-                "java.naming",        // Ktor networking (DNS lookups)
-                "java.sql",           // SQLite JDBC
-                "java.management",    // JMX (coroutines debug)
-                "jdk.unsupported",    // sun.misc.Unsafe (atomicfu, coroutines)
-                "jdk.crypto.ec",      // HTTPS/TLS (EC ciphers)
-                "java.net.http"       // HTTP client fallback
-            )
+            includeAllModules = true
 
             macOS {
                 bundleID = "com.jeeves.desktop"

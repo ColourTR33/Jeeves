@@ -369,6 +369,286 @@ class TimeTrackingManager(
         return repository.getTimeEntries(monday, sunday).filter { it.projectId == projectId }
     }
 
+    // ───────────────────────────────────────────────────────────────────────────
+    // Backlog & Sprint Planning
+    // ───────────────────────────────────────────────────────────────────────────
+
+    private val _activeSprintItem = MutableStateFlow<SprintItem?>(null)
+    val activeSprintItem: StateFlow<SprintItem?> = _activeSprintItem.asStateFlow()
+
+    /**
+     * Add a new item to a project's backlog.
+     */
+    fun addBacklogItem(projectId: String, title: String, description: String = "", estimateMinutes: Int = 60) {
+        scope.launch {
+            val items = repository.getBacklogItems(projectId).toMutableList()
+            val maxPriority = items.maxOfOrNull { it.priority } ?: 0
+            items.add(BacklogItem(
+                id = generateId(),
+                projectId = projectId,
+                title = title,
+                description = description,
+                priority = maxPriority + 1,
+                estimateMinutes = estimateMinutes,
+                status = BacklogStatus.BACKLOG,
+                createdAt = currentTimeMillis()
+            ))
+            repository.saveBacklogItems(projectId, items)
+        }
+    }
+
+    /**
+     * Update a backlog item (edit title, description, estimate, priority).
+     */
+    fun updateBacklogItem(item: BacklogItem) {
+        scope.launch {
+            val items = repository.getBacklogItems(item.projectId).toMutableList()
+            val i = items.indexOfFirst { it.id == item.id }
+            if (i >= 0) { items[i] = item; repository.saveBacklogItems(item.projectId, items) }
+        }
+    }
+
+    /**
+     * Delete a backlog item.
+     */
+    fun deleteBacklogItem(projectId: String, itemId: String) {
+        scope.launch {
+            val items = repository.getBacklogItems(projectId).filter { it.id != itemId }
+            repository.saveBacklogItems(projectId, items)
+        }
+    }
+
+    /**
+     * Reorder backlog: move item to new priority position.
+     * All items get re-numbered sequentially.
+     */
+    fun reorderBacklog(projectId: String, itemId: String, newIndex: Int) {
+        scope.launch {
+            val items = repository.getBacklogItems(projectId).sortedBy { it.priority }.toMutableList()
+            val item = items.find { it.id == itemId } ?: return@launch
+            items.remove(item)
+            items.add(newIndex.coerceIn(0, items.size), item)
+            // Re-number priorities
+            val renumbered = items.mapIndexed { idx, it -> it.copy(priority = idx + 1) }
+            repository.saveBacklogItems(projectId, renumbered)
+        }
+    }
+
+    /**
+     * Get the backlog for a project, sorted by priority.
+     */
+    suspend fun getBacklog(projectId: String): List<BacklogItem> {
+        return repository.getBacklogItems(projectId).sortedBy { it.priority }
+    }
+
+    /**
+     * Accept backlog items into the weekly sprint.
+     * Takes the top N items from the backlog that fit within the project's allocated hours.
+     * Items are moved from BACKLOG → PLANNED status.
+     */
+    fun acceptIntoSprint(projectId: String, itemIds: List<String>, weekStartDate: String) {
+        scope.launch {
+            val backlog = repository.getBacklogItems(projectId).toMutableList()
+            val existingSprint = repository.getSprintItems(weekStartDate).toMutableList()
+
+            for (itemId in itemIds) {
+                val item = backlog.find { it.id == itemId } ?: continue
+                // Update backlog status
+                val idx = backlog.indexOfFirst { it.id == itemId }
+                if (idx >= 0) backlog[idx] = item.copy(status = BacklogStatus.PLANNED)
+
+                // Create sprint item (skip if already in sprint)
+                if (existingSprint.none { it.backlogItemId == itemId }) {
+                    existingSprint.add(SprintItem(
+                        id = generateId(),
+                        backlogItemId = itemId,
+                        projectId = projectId,
+                        weekStartDate = weekStartDate,
+                        title = item.title,
+                        allocatedMinutes = item.estimateMinutes
+                    ))
+                }
+            }
+
+            repository.saveBacklogItems(projectId, backlog)
+            repository.saveSprintItems(weekStartDate, existingSprint)
+        }
+    }
+
+    /**
+     * Remove a sprint item (send back to backlog).
+     */
+    fun removeFromSprint(sprintItemId: String, weekStartDate: String) {
+        scope.launch {
+            val sprint = repository.getSprintItems(weekStartDate).toMutableList()
+            val item = sprint.find { it.id == sprintItemId } ?: return@launch
+            sprint.remove(item)
+            repository.saveSprintItems(weekStartDate, sprint)
+
+            // Revert backlog item to BACKLOG status
+            val backlog = repository.getBacklogItems(item.projectId).toMutableList()
+            val idx = backlog.indexOfFirst { it.id == item.backlogItemId }
+            if (idx >= 0) {
+                backlog[idx] = backlog[idx].copy(status = BacklogStatus.BACKLOG)
+                repository.saveBacklogItems(item.projectId, backlog)
+            }
+        }
+    }
+
+    /**
+     * Get sprint items for a given week.
+     */
+    suspend fun getSprintForWeek(weekStartDate: String): List<SprintItem> {
+        return repository.getSprintItems(weekStartDate)
+    }
+
+    /**
+     * Start working on a sprint item (begins the countdown timer).
+     * Stops any currently-active sprint item first.
+     */
+    fun startSprintTask(sprintItemId: String, weekStartDate: String) {
+        scope.launch {
+            val sprint = repository.getSprintItems(weekStartDate).toMutableList()
+            val now = currentTimeMillis()
+
+            // Stop any currently active item
+            val activeIdx = sprint.indexOfFirst { it.isActive }
+            if (activeIdx >= 0) {
+                val active = sprint[activeIdx]
+                val elapsed = if (active.activeStartTime != null) {
+                    ((now - active.activeStartTime) / 60_000).toInt()
+                } else 0
+                sprint[activeIdx] = active.copy(
+                    isActive = false,
+                    activeStartTime = null,
+                    elapsedMinutes = active.elapsedMinutes + elapsed
+                )
+            }
+
+            // Start the requested item
+            val idx = sprint.indexOfFirst { it.id == sprintItemId }
+            if (idx >= 0) {
+                sprint[idx] = sprint[idx].copy(isActive = true, activeStartTime = now)
+                _activeSprintItem.value = sprint[idx]
+
+                // Update backlog status to IN_PROGRESS
+                val item = sprint[idx]
+                val backlog = repository.getBacklogItems(item.projectId).toMutableList()
+                val bIdx = backlog.indexOfFirst { it.id == item.backlogItemId }
+                if (bIdx >= 0) {
+                    backlog[bIdx] = backlog[bIdx].copy(status = BacklogStatus.IN_PROGRESS)
+                    repository.saveBacklogItems(item.projectId, backlog)
+                }
+            }
+
+            repository.saveSprintItems(weekStartDate, sprint)
+        }
+    }
+
+    /**
+     * Stop the currently-active sprint task, recording elapsed time.
+     */
+    fun stopSprintTask(weekStartDate: String) {
+        scope.launch {
+            val sprint = repository.getSprintItems(weekStartDate).toMutableList()
+            val now = currentTimeMillis()
+
+            val activeIdx = sprint.indexOfFirst { it.isActive }
+            if (activeIdx >= 0) {
+                val active = sprint[activeIdx]
+                val elapsed = if (active.activeStartTime != null) {
+                    ((now - active.activeStartTime) / 60_000).toInt()
+                } else 0
+                sprint[activeIdx] = active.copy(
+                    isActive = false,
+                    activeStartTime = null,
+                    elapsedMinutes = active.elapsedMinutes + elapsed
+                )
+                repository.saveSprintItems(weekStartDate, sprint)
+            }
+
+            _activeSprintItem.value = null
+        }
+    }
+
+    /**
+     * Mark a sprint item as done. Records final elapsed time and updates backlog status.
+     */
+    fun completeSprintTask(sprintItemId: String, weekStartDate: String) {
+        scope.launch {
+            val sprint = repository.getSprintItems(weekStartDate).toMutableList()
+            val now = currentTimeMillis()
+
+            val idx = sprint.indexOfFirst { it.id == sprintItemId }
+            if (idx >= 0) {
+                val item = sprint[idx]
+                val elapsed = if (item.isActive && item.activeStartTime != null) {
+                    ((now - item.activeStartTime) / 60_000).toInt()
+                } else 0
+                sprint[idx] = item.copy(
+                    isActive = false,
+                    activeStartTime = null,
+                    elapsedMinutes = item.elapsedMinutes + elapsed
+                )
+                repository.saveSprintItems(weekStartDate, sprint)
+
+                if (item.isActive) _activeSprintItem.value = null
+
+                // Update backlog status to DONE
+                val backlog = repository.getBacklogItems(item.projectId).toMutableList()
+                val bIdx = backlog.indexOfFirst { it.id == item.backlogItemId }
+                if (bIdx >= 0) {
+                    backlog[bIdx] = backlog[bIdx].copy(status = BacklogStatus.DONE, completedAt = now)
+                    repository.saveBacklogItems(item.projectId, backlog)
+                }
+            }
+        }
+    }
+
+    /**
+     * Auto-fit: take top-priority backlog items and accept them into the sprint
+     * until the project's allocated hours for the week are filled.
+     */
+    fun autoFitBacklogToSprint(projectId: String, weekStartDate: String) {
+        scope.launch {
+            val plan = getWeeklyPlan(weekStartDate)
+            val targetMinutes = ((plan.targets.find { it.projectId == projectId }?.targetHours ?: 0.0) * 60).toInt()
+            if (targetMinutes <= 0) return@launch
+
+            val existingSprint = repository.getSprintItems(weekStartDate)
+            val alreadyPlannedMinutes = existingSprint.filter { it.projectId == projectId }.sumOf { it.allocatedMinutes }
+            val remainingBudget = targetMinutes - alreadyPlannedMinutes
+            if (remainingBudget <= 0) return@launch
+
+            val backlog = repository.getBacklogItems(projectId).sortedBy { it.priority }
+            val unplanned = backlog.filter { it.status == BacklogStatus.BACKLOG }
+
+            var budget = remainingBudget
+            val toAccept = mutableListOf<String>()
+            for (item in unplanned) {
+                if (item.estimateMinutes <= budget) {
+                    toAccept.add(item.id)
+                    budget -= item.estimateMinutes
+                }
+                if (budget <= 0) break
+            }
+
+            if (toAccept.isNotEmpty()) {
+                acceptIntoSprint(projectId, toAccept, weekStartDate)
+            }
+        }
+    }
+
+    /**
+     * Initialize active sprint item on app start (restore running countdown if any).
+     */
+    fun initializeActiveSprint(weekStartDate: String) {
+        scope.launch {
+            val sprint = repository.getSprintItems(weekStartDate)
+            _activeSprintItem.value = sprint.find { it.isActive }
+        }
+    }
+
     private suspend fun refreshToday() {
         _todayEntries.value = repository.getTimeEntriesForDate(epochToDateString(currentTimeMillis()))
     }
