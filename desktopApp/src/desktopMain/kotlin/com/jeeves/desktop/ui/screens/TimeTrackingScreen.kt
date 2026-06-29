@@ -258,9 +258,16 @@ private fun TimesheetTab(
         // Today's entries
         Column(Modifier.weight(0.4f)) {
             val todayEntries by appState.timeManager.todayEntries.collectAsState()
-            Text("Today", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
             val projects by appState.timeManager.projects.collectAsState()
+            var showManualEntry by remember { mutableStateOf(false) }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Today", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                OutlinedButton(onClick = { showManualEntry = true }, modifier = Modifier.height(30.dp)) {
+                    Icon(Icons.Filled.Add, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("Log Time", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
             if (todayEntries.isEmpty()) {
                 Text("No entries today", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
@@ -270,6 +277,17 @@ private fun TimesheetTab(
                         TodayItem(entry, proj) { appState.timeManager.deleteEntry(entry.id) }
                     }
                 }
+            }
+
+            if (showManualEntry) {
+                ManualTimeEntryDialog(
+                    projects = projects,
+                    onDismiss = { showManualEntry = false },
+                    onSubmit = { projectId, description, date, durationMinutes ->
+                        appState.timeManager.addManualEntry(projectId, description, date, durationMinutes * 60_000L)
+                        showManualEntry = false
+                    }
+                )
             }
         }
     }
@@ -606,6 +624,87 @@ private fun PlanTab(
             }
         }
     }
+}
+
+// ─── Manual Time Entry Dialog ───────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ManualTimeEntryDialog(
+    projects: List<Project>,
+    onDismiss: () -> Unit,
+    onSubmit: (projectId: String, description: String, date: String, durationMinutes: Int) -> Unit
+) {
+    var selectedProjectId by remember { mutableStateOf(projects.firstOrNull()?.id ?: "") }
+    var description by remember { mutableStateOf("") }
+    var hours by remember { mutableStateOf("") }
+    var minutes by remember { mutableStateOf("") }
+    var dateText by remember { mutableStateOf(com.jeeves.shared.time.TimeTrackingManager.epochToDateString(System.currentTimeMillis())) }
+    var projExpanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Log Time Manually") },
+        text = {
+            Column {
+                // Project picker
+                ExposedDropdownMenuBox(expanded = projExpanded, onExpandedChange = { projExpanded = it }) {
+                    OutlinedTextField(
+                        value = projects.find { it.id == selectedProjectId }?.name ?: "Select project",
+                        onValueChange = {}, readOnly = true,
+                        label = { Text("Project") }, modifier = Modifier.menuAnchor().fillMaxWidth(), singleLine = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(projExpanded) }
+                    )
+                    ExposedDropdownMenu(projExpanded, { projExpanded = false }) {
+                        projects.forEach { p ->
+                            DropdownMenuItem(
+                                text = { Text(p.name) },
+                                onClick = { selectedProjectId = p.id; projExpanded = false },
+                                leadingIcon = { Box(Modifier.size(10.dp).clip(CircleShape).background(hexToColor(p.color))) }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = description, onValueChange = { description = it },
+                    label = { Text("What did you work on?") }, modifier = Modifier.fillMaxWidth(), singleLine = true
+                )
+
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = hours, onValueChange = { hours = it },
+                        label = { Text("Hours") }, modifier = Modifier.width(80.dp), singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = minutes, onValueChange = { minutes = it },
+                        label = { Text("Minutes") }, modifier = Modifier.width(90.dp), singleLine = true
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = dateText, onValueChange = { dateText = it },
+                    label = { Text("Date (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    placeholder = { Text("2026-06-19") }
+                )
+                Text("Use a past date to log time retroactively", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val h = hours.toIntOrNull() ?: 0
+                val m = minutes.toIntOrNull() ?: 0
+                val totalMinutes = h * 60 + m
+                if (selectedProjectId.isNotBlank() && totalMinutes > 0 && dateText.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
+                    onSubmit(selectedProjectId, description, dateText, totalMinutes)
+                }
+            }) { Text("Log") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 // ─── Weekly Export Dialog ────────────────────────────────────────────────────────
