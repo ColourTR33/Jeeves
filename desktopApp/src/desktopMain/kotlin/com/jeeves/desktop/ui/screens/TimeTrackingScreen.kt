@@ -413,7 +413,17 @@ private fun BurndownStat(label: String, value: String, color: Color) {
 @Composable
 private fun ProjectBurndownRow(pb: ProjectBurndown) {
     val progress = if (pb.targetHours > 0) (pb.actualHours / pb.targetHours).toFloat().coerceIn(0f, 1.2f) else 0f
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(6.dp)) {
+    val atWarning = progress >= 0.8f  // 80% threshold
+    val barColor = when {
+        progress > 1f -> Color(0xFF4CAF50)       // Over target = green (done)
+        atWarning -> Color(0xFFFF6D00)           // 80%+ = amber/orange warning
+        else -> MaterialTheme.colorScheme.primary // Normal
+    }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (atWarning && progress <= 1f) Color(0xFFFFF3E0).copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
+        )
+    ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(10.dp).clip(CircleShape).background(hexToColor(pb.project.color)))
             Spacer(Modifier.width(8.dp))
@@ -422,12 +432,14 @@ private fun ProjectBurndownRow(pb: ProjectBurndown) {
             LinearProgressIndicator(
                 progress = progress.coerceAtMost(1f),
                 modifier = Modifier.weight(1f).height(6.dp),
-                color = if (progress > 1f) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                color = barColor,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
             Spacer(Modifier.width(8.dp))
             Text("${String.format("%.1f", pb.actualHours)} / ${String.format("%.1f", pb.targetHours)}h",
-                style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(80.dp))
+                style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(80.dp),
+                color = if (atWarning && progress <= 1f) Color(0xFFFF6D00) else MaterialTheme.colorScheme.onSurface)
+            if (atWarning && progress <= 1f) { Spacer(Modifier.width(4.dp)); Text("⚠", style = MaterialTheme.typography.labelSmall) }
         }
     }
 }
@@ -938,34 +950,63 @@ private fun WorkPlanTab(
                 Spacer(Modifier.height(12.dp))
             }
 
-            // Sprint items for this week
-            Text("This Week's Sprint", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            // Sprint items for this week — ALL projects by default, filter by selected project if non-empty
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("This Week's Sprint", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                // Show total remaining capacity
+                val totalTarget = weeklyPlan?.totalTargetHours ?: 40.0
+                val totalLogged = sprintItems.sumOf { it.elapsedMinutes / 60.0 }
+                val holidayHours = sprintItems.filter { 
+                    projects.find { p -> p.id == it.projectId }?.name?.equals("Holiday", ignoreCase = true) == true 
+                }.sumOf { it.allocatedMinutes / 60.0 }
+                val availableHours = totalTarget - totalLogged - holidayHours
+                Text("${String.format("%.1f", availableHours)}h available", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Spacer(Modifier.height(6.dp))
 
-            val projectSprint = sprintItems.filter { it.projectId == selectedProjectId }
-            if (projectSprint.isEmpty()) {
+            // Show ALL sprint items grouped by project (not filtered by selectedProjectId)
+            val allSprintItems = sprintItems
+            if (allSprintItems.isEmpty()) {
                 Text("No tasks planned. Accept items from the backlog or use Auto-Fit.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
+                // Calculate at-risk threshold: available hours remaining in week minus 8h buffer
+                val totalTargetHrs = weeklyPlan?.totalTargetHours ?: 40.0
+                val totalLoggedHrs = sprintItems.sumOf { it.elapsedMinutes / 60.0 }
+                val atRiskThresholdMinutes = ((totalTargetHrs - totalLoggedHrs - 8.0) * 60).toInt().coerceAtLeast(0)
+
                 LazyColumn {
-                    items(projectSprint) { item ->
-                        SprintItemRow(item, timerTick,
-                            onStart = {
-                                appState.timeManager.startSprintTask(item.id, currentWeekDate)
-                                scope.launch { delay(200); sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate) }
-                            },
-                            onComplete = {
-                                appState.timeManager.completeSprintTask(item.id, currentWeekDate)
-                                scope.launch { delay(200); sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate) }
-                            },
-                            onRemove = {
-                                appState.timeManager.removeFromSprint(item.id, currentWeekDate)
-                                scope.launch {
-                                    delay(200)
-                                    sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate)
-                                    backlogItems = appState.timeManager.getBacklog(selectedProjectId)
-                                }
+                    // Group by project
+                    val grouped = allSprintItems.groupBy { it.projectId }
+                    grouped.forEach { (projectId, items) ->
+                        val project = projects.find { it.id == projectId }
+                        item {
+                            Row(Modifier.padding(top = 8.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (project != null) { Box(Modifier.size(8.dp).clip(CircleShape).background(hexToColor(project.color))); Spacer(Modifier.width(6.dp)) }
+                                Text(project?.name ?: "Unknown", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             }
-                        )
+                        }
+                        items(items) { item ->
+                            val isAtRisk = item.allocatedMinutes - item.elapsedMinutes > atRiskThresholdMinutes
+                            SprintItemRow(item, timerTick,
+                                isAtRisk = isAtRisk,
+                                onStart = {
+                                    appState.timeManager.startSprintTask(item.id, currentWeekDate)
+                                    scope.launch { delay(200); sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate) }
+                                },
+                                onComplete = {
+                                    appState.timeManager.completeSprintTask(item.id, currentWeekDate)
+                                    scope.launch { delay(200); sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate) }
+                                },
+                                onRemove = {
+                                    appState.timeManager.removeFromSprint(item.id, currentWeekDate)
+                                    scope.launch {
+                                        delay(200)
+                                        sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate)
+                                        backlogItems = appState.timeManager.getBacklog(selectedProjectId)
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -1037,6 +1078,7 @@ private fun BacklogItemRow(
 private fun SprintItemRow(
     item: SprintItem,
     nowMs: Long,
+    isAtRisk: Boolean = false,
     onStart: () -> Unit,
     onComplete: () -> Unit,
     onRemove: () -> Unit
@@ -1049,6 +1091,7 @@ private fun SprintItemRow(
         colors = CardDefaults.cardColors(
             containerColor = when {
                 item.isActive -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                isAtRisk -> Color(0xFFFFF3E0)  // Amber tint for at-risk
                 isOverrun -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
                 else -> MaterialTheme.colorScheme.surface
             }
@@ -1056,7 +1099,13 @@ private fun SprintItemRow(
     ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(item.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(item.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    if (isAtRisk && !isOverrun) {
+                        Spacer(Modifier.width(4.dp))
+                        Text("AT RISK", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF6D00), fontWeight = FontWeight.Bold)
+                    }
+                }
                 Text("${item.elapsedMinutes}m / ${item.allocatedMinutes}m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             // Remaining indicator

@@ -186,6 +186,19 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
         val timeRepo = com.jeeves.desktop.data.FileTimeTrackingRepository()
         val timeManager = com.jeeves.shared.time.TimeTrackingManager(timeRepo, scope)
         timeManager.initialize()
+        // Ensure a Holiday project exists for blocking out availability
+        scope.launch {
+            val existingProjects = timeRepo.getProjects()
+            if (existingProjects.none { it.name.equals("Holiday", ignoreCase = true) }) {
+                timeRepo.saveProject(com.jeeves.shared.domain.Project(
+                    id = com.jeeves.shared.recording.generateId(),
+                    name = "Holiday",
+                    isBillable = false,
+                    isDistributed = false,
+                    color = "#9C27B0"
+                ))
+            }
+        }
         val reminderService = com.jeeves.desktop.time.TimeReminderService(timeManager, scope)
         reminderService.start()
 

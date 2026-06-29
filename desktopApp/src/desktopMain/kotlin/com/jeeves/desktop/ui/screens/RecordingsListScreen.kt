@@ -1280,6 +1280,13 @@ private fun SummaryView(summary: SummaryResult?, recording: Recording, onNoteCha
             QualityRatingIndicator(qualityRating = summary.qualityRating)
             if (summary.qualityRating != null) {
                 Spacer(modifier = Modifier.height(16.dp))
+            } else {
+                Text(
+                    "Meeting quality rating not available (requires longer transcription)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
 

@@ -59,10 +59,11 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
     // Timer display
     var elapsedSeconds by remember { mutableStateOf(0L) }
 
-    // Meeting metadata (editable during recording)
-    var meetingTitle by remember { mutableStateOf("") }
-    var meetingDescription by remember { mutableStateOf("") }
-    var attachments by remember { mutableStateOf(listOf<com.jeeves.shared.domain.Attachment>()) }
+    // Meeting metadata — always driven by RecordingManager's pending fields
+    // so they survive tab switches (composable destruction/recreation)
+    var meetingTitle by remember { mutableStateOf(appState.recordingManager.pendingTitle) }
+    var meetingDescription by remember { mutableStateOf(appState.recordingManager.pendingDescription) }
+    var attachments by remember { mutableStateOf(appState.recordingManager.pendingAttachments) }
 
     // Read settings to check if streaming is enabled
     var streamingEnabled by remember { mutableStateOf(true) }
@@ -77,13 +78,12 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
     }
 
     // Track whether this is a fresh recording start (not a re-entry to the tab)
-    // Use recordingManager's startTime to detect re-entry vs fresh start
-    var lastKnownRecordingStart by remember { mutableStateOf(0L) }
+    var lastKnownRecordingStart by remember { mutableStateOf(appState.recordingManager.recordingStartTime) }
 
     LaunchedEffect(recordingState) {
         if (recordingState == RecordingState.RECORDING) {
             val currentStart = appState.recordingManager.recordingStartTime
-            if (currentStart != lastKnownRecordingStart) {
+            if (currentStart != lastKnownRecordingStart && currentStart != 0L) {
                 // Genuine new recording — reset metadata
                 lastKnownRecordingStart = currentStart
                 meetingTitle = ""
@@ -93,11 +93,6 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                 appState.recordingManager.pendingDescription = ""
                 appState.recordingManager.pendingAttachments = emptyList()
                 appState.recordingManager.pendingProjectId = ""
-            } else {
-                // Re-entering tab while recording — restore from pending fields
-                meetingTitle = appState.recordingManager.pendingTitle
-                meetingDescription = appState.recordingManager.pendingDescription
-                attachments = appState.recordingManager.pendingAttachments
             }
             // Refresh streaming setting and audio source at start of each recording
             val settings = appState.settingsRepository.getSettings()
