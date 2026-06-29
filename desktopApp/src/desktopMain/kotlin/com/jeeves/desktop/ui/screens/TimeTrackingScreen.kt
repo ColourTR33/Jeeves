@@ -6,8 +6,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -735,13 +737,12 @@ private fun WeeklyExportDialog(exportText: String, onDismiss: () -> Unit) {
                     shape = RoundedCornerShape(6.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
-                    val scrollState = androidx.compose.foundation.rememberScrollState()
+                    val scrollState = rememberScrollState()
                     Text(
                         text = exportText,
                         modifier = Modifier.padding(12.dp).fillMaxWidth()
                             .verticalScroll(scrollState),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
