@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import com.jeeves.desktop.hotkey.HotkeyManager
 import com.jeeves.desktop.ui.components.*
 import com.jeeves.desktop.ui.screens.LocalAppState
+import com.jeeves.desktop.ui.screens.LogViewerScreen
 import com.jeeves.desktop.ui.screens.RecordingScreen
 import com.jeeves.desktop.ui.screens.RecordingsListScreen
 import com.jeeves.desktop.ui.screens.TimeTrackingScreen
@@ -19,7 +20,8 @@ import kotlinx.coroutines.launch
 enum class Screen {
     RECORDING,
     RECORDINGS_LIST,
-    TIME_TRACKING
+    TIME_TRACKING,
+    LOGS
 }
 
 @Composable
@@ -123,6 +125,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
                             Screen.RECORDING -> RecordingScreen(hotkeyManager)
                             Screen.RECORDINGS_LIST -> RecordingsListScreen()
                             Screen.TIME_TRACKING -> TimeTrackingScreen()
+                            Screen.LOGS -> LogViewerScreen()
                         }
                     }
 
@@ -167,6 +170,7 @@ private fun NavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
         NavigationBarItem(icon = { }, label = { Text("Record") }, selected = currentScreen == Screen.RECORDING, onClick = { onNavigate(Screen.RECORDING) })
         NavigationBarItem(icon = { }, label = { Text("Recordings") }, selected = currentScreen == Screen.RECORDINGS_LIST, onClick = { onNavigate(Screen.RECORDINGS_LIST) })
         NavigationBarItem(icon = { }, label = { Text("Time") }, selected = currentScreen == Screen.TIME_TRACKING, onClick = { onNavigate(Screen.TIME_TRACKING) })
+        NavigationBarItem(icon = { }, label = { Text("Logs") }, selected = currentScreen == Screen.LOGS, onClick = { onNavigate(Screen.LOGS) })
 
         // Sync status indicator (shown only when sync is enabled)
         if (syncEngine != null) {
