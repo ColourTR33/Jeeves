@@ -75,7 +75,11 @@ data class TimeReminderSettings(
     val quietHoursStart: Int = 18,
     val quietHoursEnd: Int = 8,
     val enabled: Boolean = true,
-    val targetWeeklyHours: Double = 40.0
+    val targetWeeklyHours: Double = 40.0,
+    // Overhead settings for weekly export prorating
+    val dailyStandupMinutes: Int = 20,   // Fixed daily standup time (minutes)
+    val dailyEmailMinutes: Int = 45,     // Fixed daily email/comms time (minutes)
+    val weeklyTimecardsHours: Double = 1.0  // Fixed weekly timecard/admin overhead (hours)
 )
 
 /**

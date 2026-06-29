@@ -221,6 +221,36 @@ private fun TimesheetTab(
                     scope.launch { appState.timeManager.autoDistributeAdminHours(currentWeekDate) }
                 }) { Icon(Icons.Filled.AutoFixHigh, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Auto-Fill Shortfall") }
             }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Weekly Export button
+            var showExportDialog by remember { mutableStateOf(false) }
+            var exportText by remember { mutableStateOf("") }
+
+            Button(onClick = {
+                scope.launch {
+                    val generator = com.jeeves.shared.time.WeeklyExportGenerator()
+                    val projects = appState.timeManager.projects.value
+                    val settings = appState.timeManager.reminderSettings.value
+                    val sprintItems = appState.timeManager.getSprintForWeek(currentWeekDate)
+                    val backlogByProject = projects.associate { p ->
+                        p.id to appState.timeManager.getBacklog(p.id)
+                    }
+                    // Calculate Friday date for subject line
+                    val friday = currentWeekDate // Will be adjusted by generator context
+                    exportText = generator.generate(projects, sprintItems, backlogByProject, settings, currentWeekDate)
+                    showExportDialog = true
+                }
+            }) {
+                Icon(Icons.Filled.ContentCopy, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Generate Weekly Export")
+            }
+
+            if (showExportDialog) {
+                WeeklyExportDialog(exportText) { showExportDialog = false }
+            }
         }
 
         Spacer(Modifier.width(20.dp))
@@ -576,6 +606,62 @@ private fun PlanTab(
             }
         }
     }
+}
+
+// ─── Weekly Export Dialog ────────────────────────────────────────────────────────
+
+@Composable
+private fun WeeklyExportDialog(exportText: String, onDismiss: () -> Unit) {
+    var copied by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Description, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Weekly Export for Gemini")
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    "Copy this prompt and paste into Gemini to generate your weekly summary emails.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                Card(
+                    Modifier.fillMaxWidth().heightIn(max = 400.dp),
+                    shape = RoundedCornerShape(6.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    val scrollState = androidx.compose.foundation.rememberScrollState()
+                    Text(
+                        text = exportText,
+                        modifier = Modifier.padding(12.dp).fillMaxWidth()
+                            .verticalScroll(scrollState),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                    clipboard.setContents(java.awt.datatransfer.StringSelection(exportText), null)
+                    copied = true
+                }
+            ) {
+                Icon(Icons.Filled.ContentCopy, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (copied) "Copied!" else "Copy to Clipboard")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
 }
 
 // ─── Work Plan Tab ──────────────────────────────────────────────────────────────
