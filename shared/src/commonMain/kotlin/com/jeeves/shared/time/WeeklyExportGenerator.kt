@@ -28,7 +28,11 @@ class WeeklyExportGenerator {
         val plannedTasks: List<ExportTask>,
         val totalVariableHours: Double,
         val proratedOverheadHours: Double,
-        val totalProjectHours: Double
+        val totalProjectHours: Double,
+        val allocationHours: Double = 0.0,  // Weekly allocation target
+        val variancePercent: Double = 0.0,  // Positive = over, negative = under
+        val isOverBudget: Boolean = false,  // >10% over allocation
+        val isUnderBudget: Boolean = false  // >10% under allocation
     )
 
     /**
@@ -40,6 +44,7 @@ class WeeklyExportGenerator {
      * @param backlogItems All backlog items (to find PLANNED items for next week)
      * @param settings Overhead settings
      * @param weekEndDate Friday date string for the subject line
+     * @param weeklyPlan Optional weekly plan with per-project allocation targets
      */
     fun generate(
         projects: List<Project>,
@@ -47,7 +52,8 @@ class WeeklyExportGenerator {
         sprintItems: List<SprintItem>,
         backlogItems: Map<String, List<BacklogItem>>,
         settings: TimeReminderSettings,
-        weekEndDate: String
+        weekEndDate: String,
+        weeklyPlan: WeeklyPlan? = null
     ): String {
         val projectMap = projects.associateBy { it.id }
         val projectData = mutableListOf<ProjectExportData>()
@@ -126,13 +132,23 @@ class WeeklyExportGenerator {
                 )
             }
 
+            // Calculate allocation variance
+            val allocation = weeklyPlan?.targets?.find { it.projectId == projectId }?.targetHours ?: 0.0
+            val variancePercent = if (allocation > 0) ((totalProjectHours - allocation) / allocation) * 100 else 0.0
+            val isOver = variancePercent > 10.0
+            val isUnder = variancePercent < -10.0
+
             projectData.add(ProjectExportData(
                 projectName = project.name,
                 completedTasks = deduped,
                 plannedTasks = planned,
                 totalVariableHours = projectBillableHours,
                 proratedOverheadHours = proratedOverhead,
-                totalProjectHours = totalProjectHours
+                totalProjectHours = totalProjectHours,
+                allocationHours = allocation,
+                variancePercent = variancePercent,
+                isOverBudget = isOver,
+                isUnderBudget = isUnder
             ))
         }
 
@@ -206,6 +222,17 @@ class WeeklyExportGenerator {
             }
 
             sb.appendLine("- Total Project Time (Variable + Prorated Admin): ${formatHours(data.totalProjectHours)} hours")
+
+            // Allocation vs burned comparison
+            if (data.allocationHours > 0) {
+                val varianceStr = String.format("%+.0f%%", data.variancePercent)
+                val flag = when {
+                    data.isOverBudget -> " ⚠️ OVER BUDGET"
+                    data.isUnderBudget -> " ⚠️ UNDER-UTILIZED"
+                    else -> ""
+                }
+                sb.appendLine("- Allocation: ${formatHours(data.allocationHours)}h | Burned: ${formatHours(data.totalProjectHours)}h | Variance: $varianceStr$flag")
+            }
 
             if (data.plannedTasks.isNotEmpty()) {
                 val plannedStr = data.plannedTasks.joinToString(", ") { it.description }

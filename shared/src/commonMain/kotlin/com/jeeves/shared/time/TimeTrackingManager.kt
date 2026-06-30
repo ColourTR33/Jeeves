@@ -132,7 +132,10 @@ class TimeTrackingManager(
         val rows = entries.groupBy { it.projectId }.mapNotNull { (pid, projEntries) ->
             val project = projectMap[pid] ?: return@mapNotNull null
             val hpd = mutableMapOf<String, Double>()
-            projEntries.forEach { e -> hpd[e.date] = (hpd[e.date] ?: 0.0) + e.effectiveHours(now) }
+            projEntries.forEach { e ->
+                val hours = roundUpTo15Min(e.effectiveHours(now))
+                hpd[e.date] = (hpd[e.date] ?: 0.0) + hours
+            }
             TimesheetRow(project, hpd, hpd.values.sum())
         }.sortedByDescending { it.totalHours }
 
@@ -711,6 +714,16 @@ class TimeTrackingManager(
     }
 
     companion object {
+        /**
+         * Round hours up to the nearest 15-minute (0.25h) increment.
+         * e.g., 0.1h → 0.25h, 0.3h → 0.5h, 1.1h → 1.25h, 0.0h → 0.0h
+         */
+        fun roundUpTo15Min(hours: Double): Double {
+            if (hours <= 0.0) return 0.0
+            val quarters = Math.ceil(hours * 4.0) / 4.0
+            return quarters
+        }
+
         fun epochToDateString(epochMs: Long): String {
             val days = (epochMs / 86_400_000).toInt()
             var y = 1970; var rem = days

@@ -242,7 +242,8 @@ private fun TimesheetTab(
                     // Get the actual time entries for the week (the logged hours)
                     val timesheet = appState.timeManager.getWeeklyTimesheet(currentWeekDate)
                     val timeEntries = appState.timeManager.getTimeEntriesForWeek(currentWeekDate)
-                    exportText = generator.generate(projects, timeEntries, sprintItems, backlogByProject, settings, currentWeekDate)
+                    val plan = appState.timeManager.getWeeklyPlan(currentWeekDate)
+                    exportText = generator.generate(projects, timeEntries, sprintItems, backlogByProject, settings, currentWeekDate, plan)
                     showExportDialog = true
                 }
             }) {
