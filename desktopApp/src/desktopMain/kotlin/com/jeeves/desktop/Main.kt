@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.Window
@@ -33,6 +34,7 @@ fun main() = application {
             exitApplication()
         },
         title = "Jeeves - Meeting Recorder",
+        icon = painterResource("icons/jeeves-icon.png"),
         state = rememberWindowState(width = 900.dp, height = 700.dp)
     ) {
         MenuBar {

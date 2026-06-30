@@ -68,6 +68,7 @@ compose.desktop {
             windows {
                 menuGroup = "Jeeves"
                 upgradeUuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                iconFile.set(project.file("src/desktopMain/resources/icons/jeeves-icon.ico"))
             }
         }
     }
