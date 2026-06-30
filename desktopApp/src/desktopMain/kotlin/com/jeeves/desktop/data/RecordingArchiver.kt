@@ -37,7 +37,7 @@ class RecordingArchiver(
         scope.launch {
             try {
                 val settings = settingsRepository.getSettings()
-                val recordings = recordingsRepository.getAllRecordings()
+                val recordings = recordingsRepository.getRecordings()
                 val now = System.currentTimeMillis()
 
                 var archived = 0
