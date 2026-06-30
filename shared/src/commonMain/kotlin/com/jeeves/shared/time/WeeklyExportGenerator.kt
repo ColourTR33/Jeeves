@@ -7,11 +7,11 @@ import com.jeeves.shared.domain.*
  *
  * Core logic:
  * 1. Sums actual time for all completed tasks across all projects → TotalBillableHours
- * 2. For each project, sums its completed tasks → ProjectBillableHours
+ * 2. For each project, sums its time entries → ProjectBillableHours
  * 3. Calculates prorated timecard overhead: (ProjectBillableHours / TotalBillableHours) * weeklyTimecards
  * 4. Adds prorated overhead to project's variable time → TotalProjectTime
  *
- * Output is the exact string template the user pastes into Gemini.
+ * Uses BOTH time entries (from the timesheet) AND sprint items (from backlog planning).
  */
 class WeeklyExportGenerator {
 
@@ -32,39 +32,43 @@ class WeeklyExportGenerator {
     )
 
     /**
-     * Generate the complete Gemini prompt from sprint data.
+     * Generate the complete Gemini prompt from time entries and sprint data.
      *
      * @param projects All projects
-     * @param sprintItems Sprint items for the current week
+     * @param timeEntries All time entries for the week (from the timesheet)
+     * @param sprintItems Sprint items for the current week (from backlog)
      * @param backlogItems All backlog items (to find PLANNED items for next week)
      * @param settings Overhead settings
      * @param weekEndDate Friday date string for the subject line
      */
     fun generate(
         projects: List<Project>,
+        timeEntries: List<TimeEntry>,
         sprintItems: List<SprintItem>,
-        backlogItems: Map<String, List<BacklogItem>>,  // projectId → items
+        backlogItems: Map<String, List<BacklogItem>>,
         settings: TimeReminderSettings,
         weekEndDate: String
     ): String {
         val projectMap = projects.associateBy { it.id }
-
-        // Build per-project export data
         val projectData = mutableListOf<ProjectExportData>()
 
-        // Step 1: Calculate total billable hours across all projects
-        val completedByProject = sprintItems
-            .filter { it.elapsedMinutes > 0 }
+        // Step 1: Calculate total billable hours from TIME ENTRIES (the actual logged hours)
+        val entriesByProject = timeEntries
+            .filter { entry ->
+                val project = projectMap[entry.projectId]
+                project != null && !project.isDistributed
+            }
             .groupBy { it.projectId }
 
-        val totalBillableHours = sprintItems.sumOf { it.elapsedMinutes / 60.0 }
+        val totalBillableHours = entriesByProject.values.sumOf { entries ->
+            entries.sumOf { (it.durationMs ?: 0) / 3_600_000.0 }
+        }
 
-        // Step 2-4: For each project with activity, calculate prorated overhead
-        for ((projectId, items) in completedByProject) {
+        // Step 2-4: For each project with logged hours, build export data
+        for ((projectId, entries) in entriesByProject) {
             val project = projectMap[projectId] ?: continue
-            if (project.isDistributed) continue  // Skip admin/distributed projects
 
-            val projectBillableHours = items.sumOf { it.elapsedMinutes / 60.0 }
+            val projectBillableHours = entries.sumOf { (it.durationMs ?: 0) / 3_600_000.0 }
 
             // Prorated timecard overhead
             val proratedOverhead = if (totalBillableHours > 0) {
@@ -73,21 +77,44 @@ class WeeklyExportGenerator {
 
             val totalProjectHours = projectBillableHours + proratedOverhead
 
-            // Completed tasks
-            val completed = items.map { sprint ->
-                ExportTask(
+            // Completed tasks: merge time entries with sprint items for richer descriptions
+            val sprintForProject = sprintItems.filter { it.projectId == projectId && it.elapsedMinutes > 0 }
+            val completed = mutableListOf<ExportTask>()
+
+            // Add sprint items (which have estimates)
+            for (sprint in sprintForProject) {
+                completed.add(ExportTask(
                     description = sprint.title,
                     estimatedHours = sprint.allocatedMinutes / 60.0,
                     actualHours = sprint.elapsedMinutes / 60.0,
                     status = "COMPLETED"
-                )
+                ))
             }
+
+            // Add time entries that aren't linked to sprint items (direct timer/manual entries)
+            val sprintTitles = sprintForProject.map { it.title.lowercase() }.toSet()
+            for (entry in entries) {
+                val desc = entry.taskDescription.ifEmpty { "General work" }
+                // Skip if already covered by a sprint item with similar title
+                if (sprintTitles.any { desc.lowercase().contains(it) || it.contains(desc.lowercase()) }) continue
+                completed.add(ExportTask(
+                    description = desc,
+                    estimatedHours = 0.0,  // No estimate for ad-hoc entries
+                    actualHours = (entry.durationMs ?: 0) / 3_600_000.0,
+                    status = "COMPLETED"
+                ))
+            }
+
+            // Deduplicate: if we have both sprint items and time entries, prefer sprint (has estimates)
+            // Group by similar description, keep the one with the most info
+            val deduped = completed.groupBy { it.description.lowercase().take(30) }
+                .map { (_, tasks) -> tasks.maxByOrNull { it.estimatedHours + it.actualHours } ?: tasks.first() }
 
             // Planned for next week (backlog items still in BACKLOG or PLANNED status)
             val nextWeekItems = backlogItems[projectId]
                 ?.filter { it.status == BacklogStatus.BACKLOG || it.status == BacklogStatus.PLANNED }
                 ?.sortedBy { it.priority }
-                ?.take(5)  // Top 5 planned items
+                ?.take(5)
                 ?: emptyList()
 
             val planned = nextWeekItems.map { item ->
@@ -101,7 +128,7 @@ class WeeklyExportGenerator {
 
             projectData.add(ProjectExportData(
                 projectName = project.name,
-                completedTasks = completed,
+                completedTasks = deduped,
                 plannedTasks = planned,
                 totalVariableHours = projectBillableHours,
                 proratedOverheadHours = proratedOverhead,
@@ -109,9 +136,9 @@ class WeeklyExportGenerator {
             ))
         }
 
-        // Also include projects with only planned items (no completed work this week)
+        // Also include projects with only planned items (no work this week)
         for ((projectId, items) in backlogItems) {
-            if (completedByProject.containsKey(projectId)) continue
+            if (entriesByProject.containsKey(projectId)) continue
             val project = projectMap[projectId] ?: continue
             if (project.isDistributed) continue
             val planned = items
@@ -133,6 +160,17 @@ class WeeklyExportGenerator {
         return buildPrompt(projectData, settings, weekEndDate)
     }
 
+    /**
+     * Backwards-compatible overload for callers that don't pass timeEntries.
+     */
+    fun generate(
+        projects: List<Project>,
+        sprintItems: List<SprintItem>,
+        backlogItems: Map<String, List<BacklogItem>>,
+        settings: TimeReminderSettings,
+        weekEndDate: String
+    ): String = generate(projects, emptyList(), sprintItems, backlogItems, settings, weekEndDate)
+
     private fun buildPrompt(
         projectData: List<ProjectExportData>,
         settings: TimeReminderSettings,
@@ -140,7 +178,6 @@ class WeeklyExportGenerator {
     ): String {
         val sb = StringBuilder()
 
-        // Header prompt
         sb.appendLine("Act as an expert project manager and communications specialist. I am providing my tracked time and task list for the week. Draft a professional End-of-Week Summary Email for each project.")
         sb.appendLine()
         sb.appendLine("Format each email with:")
@@ -152,13 +189,16 @@ class WeeklyExportGenerator {
         sb.appendLine("RAW DATA: Fixed Daily Admin: Standups (${settings.dailyStandupMinutes} mins/day), Email (${settings.dailyEmailMinutes} mins/day).")
         sb.appendLine()
 
-        // Per-project data
         for (data in projectData.sortedByDescending { it.totalProjectHours }) {
             sb.appendLine("Project ${data.projectName}:")
 
             if (data.completedTasks.isNotEmpty()) {
                 val completedStr = data.completedTasks.joinToString(", ") { task ->
-                    "${task.description} (Est: ${formatHours(task.estimatedHours)}h | Act: ${formatHours(task.actualHours)}h)"
+                    if (task.estimatedHours > 0) {
+                        "${task.description} (Est: ${formatHours(task.estimatedHours)}h | Act: ${formatHours(task.actualHours)}h)"
+                    } else {
+                        "${task.description} (Act: ${formatHours(task.actualHours)}h)"
+                    }
                 }
                 sb.appendLine("- Completed: $completedStr")
             } else {

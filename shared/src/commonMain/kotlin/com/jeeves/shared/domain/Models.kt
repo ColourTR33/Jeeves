@@ -222,5 +222,8 @@ data class AppSettings(
     val syncUsername: String = "",
     val syncPassword: String = "",  // Encrypted at rest via credential encryption (task 12)
     val syncEnabled: Boolean = false,
-    val syncAudioDownloadPolicy: String = "ON_DEMAND"  // ALWAYS, WIFI_ONLY, ON_DEMAND
+    val syncAudioDownloadPolicy: String = "ON_DEMAND",  // ALWAYS, WIFI_ONLY, ON_DEMAND
+    // Recording archival settings
+    val archiveAfterDays: Int = 7,    // Move audio to archive folder after N days (transcription/summary kept)
+    val deleteAudioAfterDays: Int = 30  // Delete archived audio files after N days (transcription/summary never deleted)
 )

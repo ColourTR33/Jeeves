@@ -386,6 +386,14 @@ class TimeTrackingManager(
         return repository.getTimeEntries(monday, sunday).filter { it.projectId == projectId }
     }
 
+    /**
+     * Get ALL time entries for the week containing [dateInWeek] (for weekly export).
+     */
+    suspend fun getTimeEntriesForWeek(dateInWeek: String): List<TimeEntry> {
+        val (monday, sunday) = getWeekBounds(dateInWeek)
+        return repository.getTimeEntries(monday, sunday)
+    }
+
     // ───────────────────────────────────────────────────────────────────────────
     // Backlog & Sprint Planning
     // ───────────────────────────────────────────────────────────────────────────

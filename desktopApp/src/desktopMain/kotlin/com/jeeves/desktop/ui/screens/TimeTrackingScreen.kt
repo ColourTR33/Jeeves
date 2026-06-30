@@ -239,9 +239,10 @@ private fun TimesheetTab(
                     val backlogByProject = projects.associate { p ->
                         p.id to appState.timeManager.getBacklog(p.id)
                     }
-                    // Calculate Friday date for subject line
-                    val friday = currentWeekDate // Will be adjusted by generator context
-                    exportText = generator.generate(projects, sprintItems, backlogByProject, settings, currentWeekDate)
+                    // Get the actual time entries for the week (the logged hours)
+                    val timesheet = appState.timeManager.getWeeklyTimesheet(currentWeekDate)
+                    val timeEntries = appState.timeManager.getTimeEntriesForWeek(currentWeekDate)
+                    exportText = generator.generate(projects, timeEntries, sprintItems, backlogByProject, settings, currentWeekDate)
                     showExportDialog = true
                 }
             }) {
@@ -313,6 +314,8 @@ private fun TimesheetTab(
     // Project detail dialog (click-through from timesheet row)
     if (selectedProjectId != null) {
         val selectedProject = weeklyTimesheet?.rows?.find { it.project.id == selectedProjectId }?.project
+        var editingDetailEntry by remember { mutableStateOf<TimeEntry?>(null) }
+
         AlertDialog(
             onDismissRequest = { selectedProjectId = null },
             title = {
@@ -331,34 +334,39 @@ private fun TimesheetTab(
                     LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                         items(projectEntries.sortedBy { it.startTime }) { entry ->
                             Card(
-                                Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                                    .clickable { editingDetailEntry = entry },
                                 shape = RoundedCornerShape(6.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                             ) {
-                                Column(Modifier.padding(10.dp)) {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(
-                                            entry.taskDescription.ifEmpty { "(no description)" },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Text(
-                                            fmtShort(entry.durationMs ?: 0),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                    Spacer(Modifier.height(2.dp))
-                                    Row {
-                                        Text(entry.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        if (entry.linkedRecordingId != null) {
-                                            Spacer(Modifier.width(8.dp))
-                                            Icon(Icons.Filled.Mic, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
-                                            Spacer(Modifier.width(2.dp))
-                                            Text("Linked recording", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(
+                                                entry.taskDescription.ifEmpty { "(no description)" },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Text(
+                                                fmtShort(entry.durationMs ?: 0),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        Spacer(Modifier.height(2.dp))
+                                        Row {
+                                            Text(entry.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            if (entry.linkedRecordingId != null) {
+                                                Spacer(Modifier.width(8.dp))
+                                                Icon(Icons.Filled.Mic, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                                                Spacer(Modifier.width(2.dp))
+                                                Text("Linked recording", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                                            }
                                         }
                                     }
+                                    Spacer(Modifier.width(6.dp))
+                                    Icon(Icons.Filled.Edit, "Edit", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
                                 }
                             }
                         }
@@ -367,6 +375,22 @@ private fun TimesheetTab(
             },
             confirmButton = { TextButton(onClick = { selectedProjectId = null }) { Text("Close") } }
         )
+
+        // Nested edit dialog for entries from any day
+        editingDetailEntry?.let { entry ->
+            EditTimeEntryDialog(
+                entry = entry,
+                onDismiss = { editingDetailEntry = null },
+                onSave = { updated ->
+                    appState.timeManager.editEntry(updated)
+                    editingDetailEntry = null
+                    // Refresh the entries list
+                    scope.launch {
+                        projectEntries = appState.timeManager.getProjectEntriesForWeek(selectedProjectId!!, currentWeekDate)
+                    }
+                }
+            )
+        }
     }
 }
 

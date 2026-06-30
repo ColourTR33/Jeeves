@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * Application logger that writes to stdout/stderr AND keeps an in-memory
  * ring buffer of recent log entries for the UI log viewer.
+ * Log entries are rotated every 24 hours (cleared on new day).
  */
 object AppLogger {
     private var enabled = true
@@ -17,7 +18,21 @@ object AppLogger {
     private val _entries = MutableStateFlow<List<LogEntry>>(emptyList())
     val entries: StateFlow<List<LogEntry>> = _entries.asStateFlow()
 
+    /** Track which day the current log entries belong to (for 24h rotation). */
+    private var currentDay: Int = dayOfYear()
+
+    private fun dayOfYear(): Int = ((System.currentTimeMillis() / 86_400_000) % 366).toInt()
+
+    private fun rotateIfNewDay() {
+        val today = dayOfYear()
+        if (today != currentDay) {
+            _entries.value = emptyList()
+            currentDay = today
+        }
+    }
+
     private fun addEntry(level: String, tag: String, message: String) {
+        rotateIfNewDay()
         val entry = LogEntry(System.currentTimeMillis(), level, tag, message)
         _entries.value = (_entries.value + entry).takeLast(MAX_ENTRIES)
     }
