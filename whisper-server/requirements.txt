@@ -1,4 +1,22 @@
+# Jeeves Whisper Server — Multi-Backend
+#
+# Core (required):
 faster-whisper>=1.0.0
 fastapi>=0.100.0
 uvicorn>=0.23.0
 python-multipart>=0.0.6
+
+# Backend-specific (install what applies to your platform):
+#
+# macOS Apple Silicon (MLX):
+#   pip install mlx-whisper
+#
+# Windows/Linux with NVIDIA GPU (CUDA):
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+# Windows CPU (Intel) — default, no extra install needed:
+#   faster-whisper uses CTranslate2 with INT8 automatically
+#
+# Linux ARM (whisper.cpp):
+#   Build whisper.cpp from source: https://github.com/ggerganov/whisper.cpp
+#   Ensure 'whisper-cpp' or 'main' is on PATH
