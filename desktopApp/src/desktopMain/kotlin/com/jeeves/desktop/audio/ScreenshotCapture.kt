@@ -2,13 +2,17 @@ package com.jeeves.desktop.audio
 
 import com.jeeves.shared.ai.AppLogger
 import com.jeeves.shared.domain.Attachment
+import java.awt.Rectangle
+import java.awt.Robot
+import java.awt.Toolkit
 import java.awt.Window
 import java.io.File
 import java.util.UUID
+import javax.imageio.ImageIO
 
 /**
- * Utility for capturing screenshots during a recording session.
- * Uses macOS `screencapture` command for native screenshot behaviour.
+ * Cross-platform screenshot capture utility.
+ * Uses Java's Robot API (works on Windows, macOS, Linux).
  * Hides the Jeeves window during capture so it doesn't appear in the screenshot.
  */
 object ScreenshotCapture {
@@ -20,9 +24,8 @@ object ScreenshotCapture {
     }
 
     /**
-     * Captures the screen excluding the Jeeves window and saves it as a PNG file.
-     * Briefly hides all Jeeves windows, takes the screenshot using macOS screencapture,
-     * then restores the windows.
+     * Captures the full screen and saves as PNG.
+     * Briefly hides all Jeeves windows, captures via Robot, then restores.
      *
      * @param timestampMs milliseconds into the recording when the screenshot was taken
      */
@@ -36,27 +39,14 @@ object ScreenshotCapture {
             val windows = Window.getWindows().filter { it.isVisible }
             windows.forEach { it.isVisible = false }
 
-            // Small delay to ensure windows are hidden before capture
-            Thread.sleep(100)
+            // Small delay to ensure windows are hidden
+            Thread.sleep(150)
 
             try {
-                // Use macOS screencapture: -x = no sound, -C = capture cursor, -m = main display only
-                val process = ProcessBuilder("/usr/sbin/screencapture", "-x", "-m", file.absolutePath)
-                    .redirectErrorStream(true)
-                    .start()
-
-                val completed = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
-                if (!completed) {
-                    process.destroyForcibly()
-                    AppLogger.error("ScreenshotCapture", "screencapture timed out")
-                    return null
-                }
-
-                if (process.exitValue() != 0) {
-                    val output = process.inputStream.bufferedReader().readText()
-                    AppLogger.error("ScreenshotCapture", "screencapture failed: $output")
-                    return null
-                }
+                val screenSize = Toolkit.getDefaultToolkit().screenSize
+                val robot = Robot()
+                val capture = robot.createScreenCapture(Rectangle(0, 0, screenSize.width, screenSize.height))
+                ImageIO.write(capture, "png", file)
             } finally {
                 // Always restore windows
                 windows.forEach { it.isVisible = true }
@@ -67,6 +57,8 @@ object ScreenshotCapture {
                 return null
             }
 
+            AppLogger.info("ScreenshotCapture", "Screenshot saved: ${file.name} (${file.length() / 1024}KB)")
+
             Attachment(
                 id = id,
                 filePath = file.absolutePath,
@@ -75,7 +67,6 @@ object ScreenshotCapture {
             )
         } catch (e: Exception) {
             AppLogger.error("ScreenshotCapture", "Failed to capture screen: ${e.message}")
-            // Ensure windows are restored on exception
             Window.getWindows().forEach { if (!it.isVisible) it.isVisible = true }
             null
         }
