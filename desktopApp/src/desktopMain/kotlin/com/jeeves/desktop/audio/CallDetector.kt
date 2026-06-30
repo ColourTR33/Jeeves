@@ -101,13 +101,23 @@ class CallDetector(private val scope: CoroutineScope) {
         dismissed = false
 
         try {
-            // Use macOS 'ps' command to list running processes
-            val process = ProcessBuilder("/bin/ps", "-axco", "comm")
-                .redirectErrorStream(true)
-                .start()
+            val isWindows = System.getProperty("os.name").lowercase().contains("win")
 
-            val output = process.inputStream.bufferedReader().readText()
-            process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+            val output = if (isWindows) {
+                val process = ProcessBuilder("tasklist", "/FO", "CSV", "/NH")
+                    .redirectErrorStream(true)
+                    .start()
+                val text = process.inputStream.bufferedReader().readText()
+                process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+                text
+            } else {
+                val process = ProcessBuilder("/bin/ps", "-axco", "comm")
+                    .redirectErrorStream(true)
+                    .start()
+                val text = process.inputStream.bufferedReader().readText()
+                process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+                text
+            }
 
             val runningProcesses = output.lines()
                 .map { it.trim().lowercase() }

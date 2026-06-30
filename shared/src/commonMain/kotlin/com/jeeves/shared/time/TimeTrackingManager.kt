@@ -93,6 +93,16 @@ class TimeTrackingManager(
         }
     }
 
+    /**
+     * Edit an existing time entry — update description, duration, or date.
+     */
+    fun editEntry(entry: TimeEntry) {
+        scope.launch {
+            repository.updateTimeEntry(entry)
+            refreshToday()
+        }
+    }
+
     fun addProject(name: String, isBillable: Boolean = true, isDistributed: Boolean = false, color: String = "#4A90D9") {
         scope.launch {
             repository.saveProject(Project(id = generateId(), name = name, isBillable = isBillable, isDistributed = isDistributed, color = color))

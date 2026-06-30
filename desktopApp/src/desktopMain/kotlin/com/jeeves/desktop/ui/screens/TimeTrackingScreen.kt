@@ -262,6 +262,7 @@ private fun TimesheetTab(
             val todayEntries by appState.timeManager.todayEntries.collectAsState()
             val projects by appState.timeManager.projects.collectAsState()
             var showManualEntry by remember { mutableStateOf(false) }
+            var editingEntry by remember { mutableStateOf<TimeEntry?>(null) }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Today", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -276,9 +277,24 @@ private fun TimesheetTab(
                 LazyColumn {
                     items(todayEntries) { entry ->
                         val proj = projects.find { it.id == entry.projectId }
-                        TodayItem(entry, proj) { appState.timeManager.deleteEntry(entry.id) }
+                        TodayItem(entry, proj,
+                            onDelete = { appState.timeManager.deleteEntry(entry.id) },
+                            onEdit = { editingEntry = it }
+                        )
                     }
                 }
+            }
+
+            // Edit time entry dialog
+            editingEntry?.let { entry ->
+                EditTimeEntryDialog(
+                    entry = entry,
+                    onDismiss = { editingEntry = null },
+                    onSave = { updated ->
+                        appState.timeManager.editEntry(updated)
+                        editingEntry = null
+                    }
+                )
             }
 
             if (showManualEntry) {
@@ -665,7 +681,8 @@ private fun ProjectEditDialog(project: Project?, onDismiss: () -> Unit, onSave: 
         onDismissRequest = onDismiss,
         title = { Text(if (isNew) "Add Project" else "Edit Project") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+            val scrollState = rememberScrollState()
+            Column(Modifier.verticalScroll(scrollState)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Project Name *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(companyName, { companyName = it }, label = { Text("Company Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -710,6 +727,60 @@ private fun ProjectEditDialog(project: Project?, onDismiss: () -> Unit, onSave: 
                     onSave(result)
                 }
             }) { Text(if (isNew) "Add" else "Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+// ─── Edit Time Entry Dialog ─────────────────────────────────────────────────────
+
+@Composable
+private fun EditTimeEntryDialog(entry: TimeEntry, onDismiss: () -> Unit, onSave: (TimeEntry) -> Unit) {
+    val totalMinutes = (entry.durationMs ?: 0) / 60_000
+    var hours by remember { mutableStateOf((totalMinutes / 60).toString()) }
+    var minutes by remember { mutableStateOf((totalMinutes % 60).toString()) }
+    var description by remember { mutableStateOf(entry.taskDescription) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Time Entry") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = description, onValueChange = { description = it },
+                    label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), singleLine = true
+                )
+                Spacer(Modifier.height(10.dp))
+                Text("Duration:", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = hours, onValueChange = { hours = it },
+                        label = { Text("Hours") }, modifier = Modifier.width(80.dp), singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = minutes, onValueChange = { minutes = it },
+                        label = { Text("Minutes") }, modifier = Modifier.width(90.dp), singleLine = true
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("Original: ${fmtShort(entry.durationMs ?: 0)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val h = hours.toIntOrNull() ?: 0
+                val m = minutes.toIntOrNull() ?: 0
+                val newDurationMs = (h * 60L + m) * 60_000L
+                if (newDurationMs > 0) {
+                    val updated = entry.copy(
+                        taskDescription = description,
+                        durationMs = newDurationMs,
+                        endTime = entry.startTime + newDurationMs
+                    )
+                    onSave(updated)
+                }
+            }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
@@ -1294,14 +1365,19 @@ private fun TimesheetGrid(ts: WeeklyTimesheet, onRowClick: (String) -> Unit = {}
 }
 
 @Composable
-private fun TodayItem(entry: TimeEntry, project: Project?, onDelete: () -> Unit) {
-    Card(Modifier.fillMaxWidth().padding(vertical = 2.dp), shape = RoundedCornerShape(8.dp),
+private fun TodayItem(entry: TimeEntry, project: Project?, onDelete: () -> Unit, onEdit: (TimeEntry) -> Unit = {}) {
+    Card(Modifier.fillMaxWidth().padding(vertical = 2.dp)
+        .clickable(enabled = !entry.isRunning) { onEdit(entry) },
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = if (entry.isRunning) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (project != null) { Box(Modifier.size(8.dp).clip(CircleShape).background(hexToColor(project.color))); Spacer(Modifier.width(6.dp)); Text(project.name, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium) }
             if (entry.taskDescription.isNotEmpty()) Text(" - ${entry.taskDescription}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
             Spacer(Modifier.weight(1f))
             if (entry.isRunning) Text("●", color = Color.Red) else Text(fmtShort(entry.durationMs ?: 0), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!entry.isRunning) {
+                IconButton(onClick = { onEdit(entry) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Filled.Edit, "Edit", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)) }
+            }
             IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) { Icon(Icons.Filled.Close, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) }
         }
     }

@@ -1,5 +1,6 @@
 package com.jeeves.desktop.time
 
+import com.jeeves.shared.ai.AppLogger
 import com.jeeves.shared.time.TimeTrackingManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,6 +66,20 @@ class TimeReminderService(
             // Long-running check
             val runningMs = currentMs - entry.startTime
             val threshold = settings.longRunningReminderMinutes * 60_000L
+
+            // AUTO-STOP: If timer exceeds 2 hours, force stop and log
+            val autoStopMs = 2 * 60 * 60 * 1000L  // 2 hours
+            if (runningMs >= autoStopMs) {
+                val desc = entry.taskDescription.ifEmpty { "current task" }
+                AppLogger.warn("TimeReminderService", "Auto-stopping timer for '$desc' after 2 hours")
+                timeManager.stopTimer()
+                _pendingReminder.value = ReminderNotification(
+                    ReminderType.LONG_RUNNING, "Timer auto-stopped",
+                    "Timer for '$desc' was running for over 2 hours and has been automatically stopped. You can edit the entry to correct the time."
+                )
+                return
+            }
+
             if (runningMs >= threshold && currentMs - lastLongRunningNotify > threshold) {
                 lastLongRunningNotify = currentMs
                 val desc = entry.taskDescription.ifEmpty { "current task" }
