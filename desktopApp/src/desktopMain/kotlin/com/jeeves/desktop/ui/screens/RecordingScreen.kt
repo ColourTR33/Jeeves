@@ -93,6 +93,7 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                 appState.recordingManager.pendingDescription = ""
                 appState.recordingManager.pendingAttachments = emptyList()
                 appState.recordingManager.pendingProjectId = ""
+                appState.recordingManager.pendingNote = ""
             }
             // Refresh streaming setting and audio source at start of each recording
             val settings = appState.settingsRepository.getSettings()
@@ -304,17 +305,58 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                                 )
                             }
                         }
+
+                        // Private notes during recording
+                        Spacer(modifier = Modifier.height(8.dp))
+                        var noteText by remember { mutableStateOf(appState.recordingManager.pendingNote) }
+                        OutlinedTextField(
+                            value = noteText,
+                            onValueChange = {
+                                noteText = it
+                                appState.recordingManager.pendingNote = it
+                            },
+                            label = { Text("Private Notes (not shared)") },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp, max = 100.dp),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            maxLines = 4,
+                            placeholder = { Text("Personal reminders, observations...") }
+                        )
+
+                        // Live transcription toggle
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Live transcription", style = MaterialTheme.typography.labelSmall)
+                            Switch(
+                                checked = streamingEnabled,
+                                onCheckedChange = { enabled ->
+                                    streamingEnabled = enabled
+                                    // Persist to settings
+                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                        val settings = appState.settingsRepository.getSettings()
+                                        appState.settingsRepository.saveSettings(settings.copy(streamingEnabled = enabled))
+                                    }
+                                },
+                                modifier = Modifier.height(24.dp)
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            LiveTranscriptSection(
-                liveTranscript = liveTranscript,
-                isTranscribing = isTranscribing,
-                isRecording = recordingState == RecordingState.RECORDING,
-                serverStatus = serverStatus
-            )
+            // Only show live transcript if streaming is enabled
+            if (streamingEnabled) {
+                LiveTranscriptSection(
+                    liveTranscript = liveTranscript,
+                    isTranscribing = isTranscribing,
+                    isRecording = recordingState == RecordingState.RECORDING,
+                    serverStatus = serverStatus
+                )
+            }
             Spacer(modifier = Modifier.height(16.dp))
         }
 

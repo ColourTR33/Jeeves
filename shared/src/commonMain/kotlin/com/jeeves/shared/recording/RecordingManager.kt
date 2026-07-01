@@ -90,6 +90,8 @@ class RecordingManager(
     var pendingAttachments: List<Attachment> = emptyList()
     /** Project ID selected during recording — used to auto-log time on stop. */
     var pendingProjectId: String = ""
+    /** Private notes written during recording — saved to recording on stop. */
+    var pendingNote: String = ""
 
     /**
      * Toggle recording on/off. Called by hotkey or button press.
@@ -158,7 +160,8 @@ class RecordingManager(
                 createdAt = currentTimeMillis(),
                 title = title.ifBlank { "Untitled Meeting" },
                 description = description,
-                attachments = attachments
+                attachments = attachments,
+                postRecordingNote = pendingNote
             )
 
             _currentRecording.value = recording
@@ -176,6 +179,7 @@ class RecordingManager(
             processingQueue.enqueue(recording, streamingTranscript = streamingText)
             _state.value = RecordingState.IDLE
             pendingProjectId = ""
+            pendingNote = ""
 
             AppLogger.info("RecordingManager", "Recording saved and enqueued: ${recording.id}")
         } catch (e: Exception) {
