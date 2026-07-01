@@ -306,6 +306,19 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                             }
                         }
 
+                        // Attendees field
+                        Spacer(modifier = Modifier.height(8.dp))
+                        var attendees by remember { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = attendees,
+                            onValueChange = { attendees = it },
+                            label = { Text("Attendees") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            placeholder = { Text("Names of participants...") }
+                        )
+
                         // Private notes during recording
                         Spacer(modifier = Modifier.height(8.dp))
                         var noteText by remember { mutableStateOf(appState.recordingManager.pendingNote) }
@@ -315,11 +328,24 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                                 noteText = it
                                 appState.recordingManager.pendingNote = it
                             },
-                            label = { Text("Private Notes (not shared)") },
+                            label = { Text("My Thoughts / Notes (private)") },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp, max = 100.dp),
                             textStyle = MaterialTheme.typography.bodySmall,
                             maxLines = 4,
-                            placeholder = { Text("Personal reminders, observations...") }
+                            placeholder = { Text("Things not said, observations, context...") }
+                        )
+
+                        // Reminders
+                        Spacer(modifier = Modifier.height(8.dp))
+                        var reminders by remember { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = reminders,
+                            onValueChange = { reminders = it },
+                            label = { Text("Reminders / Follow-ups") },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp, max = 80.dp),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            maxLines = 3,
+                            placeholder = { Text("Things to do after this meeting...") }
                         )
 
                         // Live transcription toggle
@@ -436,6 +462,65 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
         // Feature 2: Meeting Template Picker (only shown when IDLE)
         if (recordingState == RecordingState.IDLE) {
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Pre-recording setup: project + meeting topic
+            Card(
+                modifier = Modifier.fillMaxWidth(0.7f),
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    // Project picker
+                    val timeProjects by appState.timeManager.projects.collectAsState()
+                    var idleProjectId by remember { mutableStateOf(appState.recordingManager.pendingProjectId) }
+                    var idleProjExpanded by remember { mutableStateOf(false) }
+
+                    ExposedDropdownMenuBox(expanded = idleProjExpanded, onExpandedChange = { idleProjExpanded = it }) {
+                        OutlinedTextField(
+                            value = timeProjects.find { it.id == idleProjectId }?.name ?: "",
+                            onValueChange = {}, readOnly = true,
+                            label = { Text("Project") },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(), singleLine = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(idleProjExpanded) }
+                        )
+                        ExposedDropdownMenu(idleProjExpanded, { idleProjExpanded = false }) {
+                            timeProjects.forEach { project ->
+                                DropdownMenuItem(
+                                    text = { Text(project.name) },
+                                    onClick = {
+                                        idleProjectId = project.id
+                                        appState.recordingManager.pendingProjectId = project.id
+                                        idleProjExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Meeting topic (becomes the recording title)
+                    var idleTitle by remember { mutableStateOf(appState.recordingManager.pendingTitle) }
+                    OutlinedTextField(
+                        value = idleTitle,
+                        onValueChange = {
+                            idleTitle = it
+                            appState.recordingManager.pendingTitle = it
+                        },
+                        label = { Text("What is this meeting about?") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = MaterialTheme.typography.bodyMedium
+                    )
+
+                    if (idleProjectId.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Time will be logged to this project automatically", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
             var selectedTemplate by remember { mutableStateOf(MeetingTemplate.GENERAL) }
             var expanded by remember { mutableStateOf(false) }
             ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
