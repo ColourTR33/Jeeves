@@ -1483,6 +1483,14 @@ private fun TranscriptionView(transcription: TranscriptionResult?, recording: Re
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Retranscribe")
                 }
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(
+                    onClick = { appState.recordingManager.resummarizeRecording(recording) }
+                ) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Re-summarize")
+                }
             }
         }
         return

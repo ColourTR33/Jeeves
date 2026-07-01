@@ -215,6 +215,14 @@ class RecordingManager(
     fun retranscribeRecording(recording: Recording) {
         processingQueue.enqueue(recording)
     }
+
+    /**
+     * Re-summarize an existing recording that already has a transcription.
+     * Skips transcription step and goes straight to summarization.
+     */
+    fun resummarizeRecording(recording: Recording) {
+        processingQueue.enqueueSummarizeOnly(recording)
+    }
 }
 
 /**

@@ -45,7 +45,9 @@ data class ProcessingItem(
     val status: ProcessingStatus,
     val error: String? = null,
     /** Optional streaming transcript text to use instead of full-file transcription */
-    val streamingTranscript: String? = null
+    val streamingTranscript: String? = null,
+    /** When true, skip transcription and go straight to summarization */
+    val summarizeOnly: Boolean = false
 )
 
 /**
@@ -101,6 +103,28 @@ class ProcessingQueue(
     }
 
     /**
+     * Enqueue a recording for summarization only (transcription already exists).
+     * Skips the transcription step entirely.
+     */
+    fun enqueueSummarizeOnly(recording: Recording) {
+        val existing = _queue.value.find { it.recordingId == recording.id }
+        if (existing != null && existing.status != ProcessingStatus.COMPLETE && existing.status != ProcessingStatus.FAILED) {
+            return
+        }
+
+        _queue.update { currentQueue ->
+            val filtered = currentQueue.filter { it.recordingId != recording.id }
+            filtered + ProcessingItem(
+                recordingId = recording.id,
+                status = ProcessingStatus.WAITING,
+                summarizeOnly = true
+            )
+        }
+
+        startProcessingIfIdle()
+    }
+
+    /**
      * Remove completed/failed items from the queue (cleanup).
      */
     fun clearCompleted() {
@@ -145,17 +169,29 @@ class ProcessingQueue(
         try {
             val settings = settingsRepository.getSettings()
 
+            val transcription: TranscriptionResult
+
+            if (item.summarizeOnly) {
+                // Load existing transcription — skip transcription step entirely
+                val existing = recordingsRepository.getTranscription(recording.id)
+                if (existing == null) {
+                    AppLogger.error("ProcessingQueue", "No existing transcription for ${recording.id}, cannot summarize-only")
+                    updateStatus(item.recordingId, ProcessingStatus.FAILED, "No transcription to summarize")
+                    return
+                }
+                AppLogger.info("ProcessingQueue", "Summarize-only: using existing transcription for ${recording.id}")
+                transcription = existing
+            } else {
+
             // Step 1: Transcribe
             updateStatus(item.recordingId, ProcessingStatus.TRANSCRIBING)
             AppLogger.info("ProcessingQueue", "Transcribing: ${recording.id} (${recording.filePath})")
 
             // Use streaming transcript if it captured at least 200 chars of content.
-            // This avoids a full-file Whisper pass (freeing the server sooner) whenever
-            // the live transcript has meaningful coverage — regardless of recording length.
             val streamingText = item.streamingTranscript
             val useStreaming = !streamingText.isNullOrBlank() && streamingText.length >= 200
 
-            val transcription = if (useStreaming) {
+            transcription = if (useStreaming) {
                 AppLogger.info("ProcessingQueue", "Using streaming transcript (${streamingText.orEmpty().length} chars)")
                 TranscriptionResult(
                     recordingId = recording.id,
@@ -195,6 +231,7 @@ class ProcessingQueue(
 
             recordingsRepository.saveTranscription(transcription)
             AppLogger.info("ProcessingQueue", "Transcription complete for ${recording.id}")
+            } // end else (full transcription path)
 
             // Step 2: Diarize (if pyannote mode is enabled and server is available)
             var diarizedTranscription = transcription
