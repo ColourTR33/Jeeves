@@ -266,8 +266,28 @@ class ProcessingQueue(
             updateStatus(item.recordingId, ProcessingStatus.COMPLETE)
 
         } catch (e: Exception) {
-            AppLogger.error("ProcessingQueue", "Failed processing ${recording.id}: ${e.message}", e)
-            updateStatus(item.recordingId, ProcessingStatus.FAILED, e.message)
+            val isConnectionError = e.message?.contains("Connection refused") == true ||
+                e.message?.contains("ConnectException") == true ||
+                e.message?.contains("Timed out") == true ||
+                e.cause?.message?.contains("Connection refused") == true
+
+            if (isConnectionError) {
+                // Self-healing: retry after a delay instead of permanent failure
+                val retryCount = (item.error?.substringAfter("retry:")?.toIntOrNull() ?: 0)
+                if (retryCount < 5) {
+                    val delaySeconds = (30 * (retryCount + 1)).coerceAtMost(300) // 30s, 60s, 90s, 120s, 150s
+                    AppLogger.warn("ProcessingQueue", "Transcription server unreachable for ${recording.id}, retry ${retryCount + 1}/5 in ${delaySeconds}s")
+                    updateStatus(item.recordingId, ProcessingStatus.WAITING, "retry:${retryCount + 1}")
+                    // Delay before retrying
+                    kotlinx.coroutines.delay(delaySeconds * 1000L)
+                } else {
+                    AppLogger.error("ProcessingQueue", "Failed processing ${recording.id} after 5 retries: ${e.message}", e)
+                    updateStatus(item.recordingId, ProcessingStatus.FAILED, "Server unreachable after 5 retries")
+                }
+            } else {
+                AppLogger.error("ProcessingQueue", "Failed processing ${recording.id}: ${e.message}", e)
+                updateStatus(item.recordingId, ProcessingStatus.FAILED, e.message)
+            }
         }
     }
 

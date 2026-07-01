@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -511,6 +512,14 @@ private fun RecordingListItem(
     val queueItems by appState.recordingManager.processingQueue.queue.collectAsState()
     val processingItem = queueItems.find { it.recordingId == recording.id }
 
+    // Check if transcription and summary exist for status indicators
+    var hasTranscription by remember { mutableStateOf(false) }
+    var hasSummary by remember { mutableStateOf(false) }
+    LaunchedEffect(recording.id) {
+        hasTranscription = appState.recordingsRepository.getTranscription(recording.id) != null
+        hasSummary = appState.recordingsRepository.getSummary(recording.id) != null
+    }
+
     val backgroundColor by animateColorAsState(
         if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
         else MaterialTheme.colorScheme.surface
@@ -583,8 +592,23 @@ private fun RecordingListItem(
                 }
             }
 
-            // Processing status indicator
-            ProcessingStatusIcon(processingItem)
+            // Processing status indicator OR completion indicators
+            if (processingItem != null && processingItem.status != com.jeeves.shared.recording.ProcessingStatus.COMPLETE) {
+                ProcessingStatusIcon(processingItem)
+            } else {
+                // Show completion status: green checkmarks for transcription/summary
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (hasTranscription) {
+                        Icon(Icons.Filled.TextSnippet, "Transcribed", Modifier.size(14.dp), tint = Color(0xFF4CAF50))
+                    }
+                    if (hasSummary) {
+                        Icon(Icons.Filled.AutoAwesome, "Summarized", Modifier.size(14.dp), tint = Color(0xFF4CAF50))
+                    }
+                    if (!hasTranscription && !hasSummary && processingItem == null) {
+                        Icon(Icons.Filled.Schedule, "Pending", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                    }
+                }
+            }
 
             // Delete button
             IconButton(
