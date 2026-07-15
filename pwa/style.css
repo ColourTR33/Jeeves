@@ -47,15 +47,19 @@ h1 {
   max-width: 380px;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 20px;
 }
 
 .settings-cog {
+  position: fixed;
+  top: 12px;
+  right: 16px;
   font-size: 1.4rem;
   color: var(--text-dim);
   cursor: pointer;
   transition: color 0.2s;
+  z-index: 100;
 }
 
 .settings-cog:hover { color: var(--primary); }

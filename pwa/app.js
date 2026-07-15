@@ -135,8 +135,15 @@ async function loadProjects() {
     const result = await localDb.allDocs({ include_docs: true });
     const projects = result.rows
       .map(r => r.doc)
-      .filter(d => d.type === 'project')
+      .filter(d => d && d.type === 'project')
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    console.log('[Jeeves] loadProjects: total docs=' + result.rows.length + ', projects found=' + projects.length);
+    if (projects.length === 0 && result.rows.length > 0) {
+      // Debug: show what types we have
+      const types = result.rows.map(r => r.doc && r.doc.type).filter(Boolean);
+      console.log('[Jeeves] Doc types in DB:', [...new Set(types)]);
+    }
 
     const select = document.getElementById('project-select');
     const currentValue = select.value;
@@ -150,9 +157,12 @@ async function loadProjects() {
     // Restore selection
     if (currentValue) select.value = currentValue;
     // Update start button state
-    document.getElementById('btn-start').disabled = !select.value;
+    const startBtn = document.getElementById('btn-start');
+    if (startBtn && !timerStartTime && !isPaused) {
+      startBtn.disabled = !select.value;
+    }
   } catch (e) {
-    console.error('Failed to load projects:', e);
+    console.error('[Jeeves] Failed to load projects:', e);
   }
 }
 
@@ -344,10 +354,11 @@ function updateButtons(state) {
   const start = document.getElementById('btn-start');
   const pause = document.getElementById('btn-pause');
   const stop = document.getElementById('btn-stop');
+  const projectSelected = !!document.getElementById('project-select').value;
 
   switch (state) {
     case 'idle':
-      start.disabled = false; start.textContent = 'Start';
+      start.disabled = !projectSelected; start.textContent = 'Start';
       pause.disabled = true;
       stop.disabled = true;
       break;

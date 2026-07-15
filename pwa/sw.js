@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jeeves-time-v4';
+const CACHE_NAME = 'jeeves-time-v5';
 const ASSETS = [
   '/',
   '/index.html',
