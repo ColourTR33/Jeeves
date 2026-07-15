@@ -267,6 +267,15 @@ class ProcessingQueue(
                 diarizationClient != null &&
                 transcription.segments.isNotEmpty()
             ) {
+                // Check if diarization server is reachable before attempting
+                // (avoids noisy connection errors when server isn't running)
+                val serverAvailable = try {
+                    diarizationClient.isAvailable(settings.diarizationServerUrl)
+                } catch (_: Exception) { false }
+
+                if (!serverAvailable) {
+                    AppLogger.info("ProcessingQueue", "Diarization server unavailable at ${settings.diarizationServerUrl} — skipping diarization for ${recording.id}")
+                } else {
                 updateStatus(item.recordingId, ProcessingStatus.DIARIZING)
                 AppLogger.info("ProcessingQueue", "Diarizing: ${recording.id}")
 
@@ -292,6 +301,7 @@ class ProcessingQueue(
                     // Diarization failure is non-fatal — continue with unspeaker'd transcription
                     AppLogger.warn("ProcessingQueue", "Diarization failed for ${recording.id}: ${e.message}")
                 }
+                } // end else (server available)
             }
 
             // Step 3: Summarize
