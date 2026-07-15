@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#4A90D9">
+  <title>Jeeves Time</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Jeeves Time</h1>
+  <p class="subtitle">Remote time tracker</p>
+
+  <div id="sync-status" class="sync-status">Connecting...</div>
+
+  <div id="timer-display" class="timer-display">00:00:00</div>
+
+  <div class="field">
+    <label>Project</label>
+    <select id="project-select">
+      <option value="">Loading projects...</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>What am I working on?</label>
+    <input type="text" id="task-input" placeholder="e.g. Sizing exercise review">
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-start" id="btn-start">Start</button>
+    <button class="btn btn-pause" id="btn-pause" disabled>Pause</button>
+    <button class="btn btn-stop" id="btn-stop" disabled>Stop</button>
+  </div>
+
+  <div class="recent">
+    <h3>Today</h3>
+    <div id="recent-entries"></div>
+  </div>
+
+  <p class="settings-link" id="settings-toggle">Settings</p>
+  <div class="settings-panel" id="settings-panel">
+    <div class="field">
+      <label>CouchDB URL</label>
+      <input type="text" id="settings-url" placeholder="https://notes.thehartleys.uk/jeeves-time">
+    </div>
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="settings-user">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="settings-pass">
+    </div>
+    <button class="btn btn-save" id="btn-save-settings">Save & Connect</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

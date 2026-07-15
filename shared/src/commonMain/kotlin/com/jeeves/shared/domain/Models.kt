@@ -229,5 +229,12 @@ data class AppSettings(
     val archiveAfterDays: Int = 7,    // Move audio to archive folder after N days (transcription/summary kept)
     val deleteAudioAfterDays: Int = 30,  // Delete archived audio files after N days (transcription/summary never deleted)
     // Logging
-    val verboseLogging: Boolean = false  // When true, DEBUG-level entries are logged + written to file
+    val verboseLogging: Boolean = false,  // When true, DEBUG-level entries are logged + written to file
+    // CouchDB Time Sync
+    val timeSyncEnabled: Boolean = false,
+    val timeSyncUrl: String = "",              // e.g. "https://notes.thehartleys.uk/jeeves-time"
+    val timeSyncUsername: String = "",
+    val timeSyncPassword: String = "",
+    val timeSyncIntervalSeconds: Int = 60,    // How often to sync (configurable)
+    val timeSyncDeviceId: String = "desktop"  // Identifies this device's entries
 )

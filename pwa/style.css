@@ -1,0 +1,211 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface-light: #0f3460;
+  --primary: #4A90D9;
+  --primary-light: #6bb3f0;
+  --text: #e0e0e0;
+  --text-dim: #8892a4;
+  --success: #4CAF50;
+  --error: #f44336;
+  --warning: #FF9800;
+  --radius: 12px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+}
+
+h1 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 24px;
+}
+
+/* Sync status */
+.sync-status {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--text-dim);
+  margin-bottom: 16px;
+}
+.sync-status.connected { color: var(--success); }
+.sync-status.error { color: var(--error); }
+
+/* Timer display */
+.timer-display {
+  font-size: 3.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+  margin: 20px 0;
+  color: var(--text);
+}
+.timer-display.running { color: var(--primary-light); }
+
+/* Form fields */
+.field {
+  width: 100%;
+  max-width: 380px;
+  margin-bottom: 12px;
+}
+
+.field label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.field select,
+.field input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--surface-light);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.field select:focus,
+.field input:focus {
+  border-color: var(--primary);
+}
+
+/* Buttons */
+.controls {
+  display: flex;
+  gap: 12px;
+  margin: 24px 0;
+}
+
+.btn {
+  padding: 14px 28px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s, opacity 0.2s;
+}
+
+.btn:active { transform: scale(0.95); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-start {
+  background: var(--success);
+  color: white;
+}
+
+.btn-pause {
+  background: var(--warning);
+  color: white;
+}
+
+.btn-stop {
+  background: var(--error);
+  color: white;
+}
+
+/* Recent entries */
+.recent {
+  width: 100%;
+  max-width: 380px;
+  margin-top: 24px;
+}
+
+.recent h3 {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.entry-item {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.entry-item .left {
+  display: flex;
+  flex-direction: column;
+}
+
+.entry-item .project-name {
+  font-size: 0.8rem;
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.entry-item .task-desc {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.entry-item .duration {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Settings */
+.settings-link {
+  margin-top: 24px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.settings-panel {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-top: 12px;
+  display: none;
+}
+
+.settings-panel.visible { display: block; }
+
+.settings-panel .field { margin-bottom: 10px; }
+
+.btn-save {
+  background: var(--primary);
+  color: white;
+  width: 100%;
+  margin-top: 8px;
+}

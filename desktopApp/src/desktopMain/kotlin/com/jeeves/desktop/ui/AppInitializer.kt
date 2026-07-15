@@ -241,6 +241,17 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
         val meetingScheduleManager = com.jeeves.desktop.meeting.MeetingScheduleManager(meetingScheduleRepo, scope)
         meetingScheduleManager.initialize()
 
+        // Time Sync (CouchDB) — lightweight periodic push/pull
+        val timeSyncService = com.jeeves.desktop.sync.TimeSyncService(timeRepo, scope)
+        if (settings.timeSyncEnabled && settings.timeSyncUrl.isNotBlank()) {
+            timeSyncService.couchDbUrl = settings.timeSyncUrl
+            timeSyncService.username = settings.timeSyncUsername
+            timeSyncService.password = settings.timeSyncPassword
+            timeSyncService.intervalSeconds = settings.timeSyncIntervalSeconds
+            timeSyncService.deviceId = settings.timeSyncDeviceId.ifBlank { "desktop" }
+            timeSyncService.start()
+        }
+
         AppState(
             recordingManager = recordingManager,
             settingsRepository = settingsRepository,

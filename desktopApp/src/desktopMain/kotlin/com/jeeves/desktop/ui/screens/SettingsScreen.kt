@@ -894,6 +894,59 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Time Sync (CouchDB)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Time Sync (CouchDB)", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Sync time entries and projects with a CouchDB instance for PWA access and reporting.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Enable time sync")
+                    Switch(checked = settings.timeSyncEnabled, onCheckedChange = { settings = settings.copy(timeSyncEnabled = it); isSaved = false })
+                }
+
+                if (settings.timeSyncEnabled) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = settings.timeSyncUrl, onValueChange = { settings = settings.copy(timeSyncUrl = it); isSaved = false },
+                        label = { Text("CouchDB URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        placeholder = { Text("https://notes.thehartleys.uk/jeeves-time") }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = settings.timeSyncUsername, onValueChange = { settings = settings.copy(timeSyncUsername = it); isSaved = false },
+                            label = { Text("Username") }, modifier = Modifier.weight(1f), singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = settings.timeSyncPassword, onValueChange = { settings = settings.copy(timeSyncPassword = it); isSaved = false },
+                            label = { Text("Password") }, modifier = Modifier.weight(1f), singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = settings.timeSyncIntervalSeconds.toString(),
+                            onValueChange = { settings = settings.copy(timeSyncIntervalSeconds = it.toIntOrNull() ?: 60); isSaved = false },
+                            label = { Text("Sync interval (seconds)") }, modifier = Modifier.width(160.dp), singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = settings.timeSyncDeviceId,
+                            onValueChange = { settings = settings.copy(timeSyncDeviceId = it); isSaved = false },
+                            label = { Text("Device ID") }, modifier = Modifier.weight(1f), singleLine = true,
+                            placeholder = { Text("desktop") }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Sync Configuration
         SyncSettingsSection(
             settings = settings,
