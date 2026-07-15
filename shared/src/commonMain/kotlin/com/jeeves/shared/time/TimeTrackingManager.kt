@@ -497,6 +497,13 @@ class TimeTrackingManager(
     }
 
     /**
+     * Save/replace the entire backlog for a project.
+     */
+    suspend fun saveBacklog(projectId: String, items: List<BacklogItem>) {
+        repository.saveBacklogItems(projectId, items)
+    }
+
+    /**
      * Accept backlog items into the weekly sprint.
      * Takes the top N items from the backlog that fit within the project's allocated hours.
      * Items are moved from BACKLOG → PLANNED status.

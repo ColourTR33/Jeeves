@@ -17,6 +17,7 @@ import com.jeeves.desktop.ui.screens.LogViewerScreen
 import com.jeeves.desktop.ui.screens.MantraScreen
 import com.jeeves.desktop.ui.screens.RecordingScreen
 import com.jeeves.desktop.ui.screens.RecordingsListScreen
+import com.jeeves.desktop.ui.screens.RemindersScreen
 import com.jeeves.desktop.ui.screens.TimeTrackingScreen
 import kotlinx.coroutines.launch
 
@@ -24,6 +25,7 @@ enum class Screen {
     RECORDING,
     TIME_TRACKING,
     MANTRAS,
+    REMINDERS,
     LOGS
 }
 
@@ -144,6 +146,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
                             Screen.RECORDING -> RecordingScreen(hotkeyManager)
                             Screen.TIME_TRACKING -> TimeTrackingScreen()
                             Screen.MANTRAS -> MantraScreen(appState.mantraManager)
+                            Screen.REMINDERS -> RemindersScreen()
                             Screen.LOGS -> LogViewerScreen()
                         }
                     }
@@ -190,6 +193,7 @@ private fun NavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
         NavigationBarItem(icon = { }, label = { Text("Record") }, selected = currentScreen == Screen.RECORDING, onClick = { onNavigate(Screen.RECORDING) })
         NavigationBarItem(icon = { }, label = { Text("Projects") }, selected = currentScreen == Screen.TIME_TRACKING, onClick = { onNavigate(Screen.TIME_TRACKING) })
         NavigationBarItem(icon = { }, label = { Text("Mantras") }, selected = currentScreen == Screen.MANTRAS, onClick = { onNavigate(Screen.MANTRAS) })
+        NavigationBarItem(icon = { }, label = { Text("Reminders") }, selected = currentScreen == Screen.REMINDERS, onClick = { onNavigate(Screen.REMINDERS) })
 
         Spacer(modifier = Modifier.weight(1f))
 
