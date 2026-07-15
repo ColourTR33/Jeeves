@@ -101,6 +101,9 @@ function initDb() {
         setSyncStatus('Syncing...', '');
       }).on('paused', () => {
         setSyncStatus('Connected', 'connected');
+        // Reload data when sync pauses (initial replication done)
+        loadProjects();
+        loadTodayEntries();
       }).on('error', (err) => {
         setSyncStatus('Sync error', 'error');
         console.error('Sync error:', err);
