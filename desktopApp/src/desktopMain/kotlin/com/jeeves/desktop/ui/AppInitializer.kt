@@ -125,6 +125,10 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
         // Load settings to determine sync configuration
         val settings = runBlocking { settingsRepository.getSettings() }
 
+        // Initialize verbose logging based on settings
+        val logDir = File(System.getProperty("user.home"), "Jeeves/logs").absolutePath
+        com.jeeves.shared.ai.AppLogger.setVerbose(settings.verboseLogging, logDir)
+
         // Determine the active RecordingsRepository and SyncEngine based on sync settings
         val syncEngine: SyncEngine?
         val recordingsRepository: RecordingsRepository
@@ -216,21 +220,26 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             promptTemplateManager = promptTemplateManager
         )
 
-        // Wire recording → timesheet integration: auto-log meeting time (+10 min handoff)
+        // Wire recording → timesheet integration:
+        // On record START: start a running timer against the selected project
+        recordingManager.onRecordingStarted = { projectId, title ->
+            timeManager.startTimer(projectId, title)
+        }
+        // On record STOP: stop the running timer, then add +10 min handoff to the entry
         recordingManager.onRecordingSaved = { recording, projectId ->
-            val meetingDurationWithHandoff = recording.durationMs + 600_000L  // +10 min
-            val date = com.jeeves.shared.time.TimeTrackingManager.epochToDateString(recording.createdAt)
-            timeManager.logMeetingTime(
-                projectId = projectId,
-                recordingId = recording.id,
-                title = recording.title,
-                durationMs = meetingDurationWithHandoff,
-                date = date
-            )
+            timeManager.stopTimerAndAddHandoff(recording.id, 600_000L)  // +10 min
         }
 
         val callDetector = com.jeeves.desktop.audio.CallDetector(scope)
         callDetector.start()
+
+        val mantraRepo = com.jeeves.desktop.data.FileMantraRepository()
+        val mantraManager = com.jeeves.shared.mantra.MantraManager(mantraRepo, timeManager, scope)
+        mantraManager.initialize()
+
+        val meetingScheduleRepo = com.jeeves.desktop.data.FileMeetingScheduleRepository()
+        val meetingScheduleManager = com.jeeves.desktop.meeting.MeetingScheduleManager(meetingScheduleRepo, scope)
+        meetingScheduleManager.initialize()
 
         AppState(
             recordingManager = recordingManager,
@@ -248,6 +257,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             calendarService = calendarService,
             timeManager = timeManager,
             reminderService = reminderService,
+            mantraManager = mantraManager,
+            meetingScheduleManager = meetingScheduleManager,
             callDetector = callDetector,
             syncEngine = syncEngine
         )

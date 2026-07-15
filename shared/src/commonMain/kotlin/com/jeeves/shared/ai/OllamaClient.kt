@@ -28,9 +28,11 @@ class OllamaClient(
         cloudLlmConfig: CloudLlmConfig?
     ): SummaryResult {
         val wordCount = transcription.text.split("\\s+".toRegex()).size
+        AppLogger.info("OllamaClient", "Summarizing ${wordCount} words (model: ${config.modelName})")
 
-        // For long transcripts (>4000 words), use chunked summarization
-        return if (wordCount > 4000) {
+        // For long transcripts (>2000 words), use chunked summarization
+        // Threshold lowered from 4000 to 2000 to stay safely within qwen3:8b context window
+        return if (wordCount > 2000) {
             summarizeChunked(transcription, config, description, attachmentCount, promptTemplate, meetingTemplate, cloudLlmConfig)
         } else {
             summarizeDirect(transcription, config, description, attachmentCount, promptTemplate, meetingTemplate, cloudLlmConfig)
@@ -71,10 +73,11 @@ class OllamaClient(
     }
 
     /**
-     * Chunked summarization for long transcripts.
-     * 1. Split transcript into ~3000-word chunks
+     * Chunked summarization for long transcripts (map-reduce).
+     * 1. Split transcript into ~1500-word chunks (fits within qwen3:8b context)
      * 2. Summarize each chunk independently (key points + actions only)
-     * 3. Combine chunk summaries into a final pass that produces the full structured output
+     * 3. If combined chunk summaries exceed 2000 words, recursively reduce
+     * 4. Final pass produces the full structured output
      */
     private suspend fun summarizeChunked(
         transcription: TranscriptionResult,
@@ -86,10 +89,11 @@ class OllamaClient(
         cloudLlmConfig: CloudLlmConfig? = null
     ): SummaryResult {
         val words = transcription.text.split("\\s+".toRegex())
-        val chunkSize = 3000
+        // 1500 words per chunk keeps prompt well within 8K token context for qwen3:8b
+        val chunkSize = 1500
         val chunks = words.chunked(chunkSize).map { it.joinToString(" ") }
 
-        AppLogger.info("OllamaClient", "Chunked summarization: ${words.size} words -> ${chunks.size} chunks")
+        AppLogger.info("OllamaClient", "Chunked summarization: ${words.size} words -> ${chunks.size} chunks of ~$chunkSize words")
 
         // Resolve cloud config for routing
         val cloudEndpointConfig = if (cloudLlmConfig?.enabled == true) {
@@ -101,87 +105,138 @@ class OllamaClient(
             )
         } else null
 
-        // Phase 1: Summarize each chunk
+        // Phase 1: Map — summarize each chunk
         val chunkSummaries = mutableListOf<String>()
         for ((index, chunk) in chunks.withIndex()) {
             AppLogger.info("OllamaClient", "Summarizing chunk ${index + 1}/${chunks.size}")
-            val chunkPrompt = """
-                |Summarize this section of a meeting transcription (part ${index + 1} of ${chunks.size}).
-                |Provide key points and any action items as bullet points. Be concise.
-                |
-                |TRANSCRIPTION SECTION:
-                |$chunk
-            """.trimMargin()
+            val chunkPrompt = """Summarize this section of a meeting transcription (part ${index + 1} of ${chunks.size}).
+Provide key points and any action items as bullet points. Be concise (max 200 words).
 
-            val chunkResponse = if (cloudEndpointConfig != null) {
-                callOpenAiCompatibleApi(cloudEndpointConfig, chunkPrompt, apiKey = cloudLlmConfig!!.apiKey)
-            } else {
-                try {
-                    callOllamaApi(config, chunkPrompt)
-                } catch (e: Exception) {
-                    callOpenAiCompatibleApi(config, chunkPrompt)
-                }
+TRANSCRIPTION SECTION:
+$chunk"""
+
+            val chunkResponse = callLlm(config, chunkPrompt, cloudEndpointConfig, cloudLlmConfig)
+            if (chunkResponse.isBlank()) {
+                AppLogger.warn("OllamaClient", "Chunk ${index + 1} returned empty response — skipping")
+                continue
             }
             chunkSummaries.add("--- Part ${index + 1} ---\n$chunkResponse")
         }
 
+        if (chunkSummaries.isEmpty()) {
+            AppLogger.error("OllamaClient", "All chunk summarizations returned empty — summarization failed")
+            throw RuntimeException("Summarization failed: LLM returned empty responses for all chunks")
+        }
+
+        // Phase 1.5: Reduce — if combined chunk summaries are still too long, reduce again
+        var combinedChunkText = chunkSummaries.joinToString("\n\n")
+        val combinedWordCount = combinedChunkText.split("\\s+".toRegex()).size
+        if (combinedWordCount > 2000) {
+            AppLogger.info("OllamaClient", "Chunk summaries still large (${combinedWordCount} words), running reduce pass")
+            val reduceChunks = combinedChunkText.split("\\s+".toRegex()).chunked(1500).map { it.joinToString(" ") }
+            val reducedSummaries = mutableListOf<String>()
+            for ((i, rc) in reduceChunks.withIndex()) {
+                val reducePrompt = """Condense these meeting notes into a shorter summary (max 300 words). Keep all action items and key decisions.
+
+$rc"""
+                val reduced = callLlm(config, reducePrompt, cloudEndpointConfig, cloudLlmConfig)
+                if (reduced.isNotBlank()) reducedSummaries.add(reduced)
+            }
+            combinedChunkText = reducedSummaries.joinToString("\n\n")
+        }
+
         // Phase 2: Final synthesis pass
-        val combinedChunkText = chunkSummaries.joinToString("\n\n")
         val contextSection = if (description.isNotBlank()) "\nMeeting context/agenda: $description\n" else ""
         val attachmentNote = if (attachmentCount > 0) "\n$attachmentCount screenshot(s) were captured.\n" else ""
 
-        val finalPrompt = """
-            |Below are summaries of different parts of a meeting. Combine them into a single cohesive meeting summary.
-            |$contextSection$attachmentNote
-            |Provide:
-            |1. A concise summary (2-3 paragraphs)
-            |2. Key points discussed (bullet points)
-            |3. Action items identified (bullet points)
-            |4. Questions raised (bullet points)
-            |5. At least 2 hashtag tags for categorizing this meeting (e.g., #project-name #sprint-review)
-            |
-            |Format your response as:
-            |SUMMARY:
-            |[your summary here]
-            |
-            |KEY POINTS:
-            |- [point 1]
-            |...
-            |
-            |ACTION ITEMS:
-            |- [action 1]
-            |...
-            |
-            |QUESTIONS:
-            |- [question 1]
-            |...
-            |
-            |TAGS:
-            |#tag1 #tag2
-            |
-            |SECTION SUMMARIES:
-            |$combinedChunkText
-        """.trimMargin()
+        val finalPrompt = """Below are summaries of different parts of a meeting. Combine them into a single cohesive meeting summary.
+$contextSection$attachmentNote
+Provide:
+1. A concise summary (2-3 paragraphs)
+2. Key points discussed (bullet points)
+3. Action items identified (bullet points)
+4. Questions raised (bullet points)
+5. At least 2 hashtag tags for categorizing this meeting (e.g., #project-name #sprint-review)
 
-        val finalResponse = if (cloudEndpointConfig != null) {
-            callOpenAiCompatibleApi(cloudEndpointConfig, finalPrompt, apiKey = cloudLlmConfig!!.apiKey)
-        } else {
-            try {
-                callOllamaApi(config, finalPrompt)
-            } catch (e: Exception) {
-                callOpenAiCompatibleApi(config, finalPrompt)
-            }
+Format your response as:
+SUMMARY:
+[your summary here]
+
+KEY POINTS:
+- [point 1]
+...
+
+ACTION ITEMS:
+- [action 1]
+...
+
+QUESTIONS:
+- [question 1]
+...
+
+TAGS:
+#tag1 #tag2
+
+SECTION SUMMARIES:
+$combinedChunkText"""
+
+        val finalResponse = callLlm(config, finalPrompt, cloudEndpointConfig, cloudLlmConfig)
+
+        if (finalResponse.isBlank()) {
+            AppLogger.error("OllamaClient", "Final synthesis pass returned empty response")
+            // Fall back to returning the combined chunk summaries as the summary
+            return SummaryResult(
+                recordingId = transcription.recordingId,
+                summary = combinedChunkText,
+                keyPoints = emptyList(),
+                actionItems = emptyList(),
+                questions = emptyList(),
+                tags = emptyList(),
+                modelUsed = if (cloudLlmConfig?.enabled == true) cloudLlmConfig.modelName else config.modelName,
+                recommendedQuestions = emptyList(),
+                qualityRating = null
+            )
         }
 
         return parseSummaryResponse(transcription.recordingId, finalResponse,
             if (cloudLlmConfig?.enabled == true) cloudLlmConfig.modelName else config.modelName)
     }
 
+    /**
+     * Unified LLM call that routes to cloud or local with proper error handling.
+     * Returns empty string on failure (never throws for individual calls during chunked processing).
+     */
+    private suspend fun callLlm(
+        config: AiEndpointConfig,
+        prompt: String,
+        cloudEndpointConfig: AiEndpointConfig?,
+        cloudLlmConfig: CloudLlmConfig?
+    ): String {
+        return try {
+            if (cloudEndpointConfig != null) {
+                callOpenAiCompatibleApi(cloudEndpointConfig, prompt, apiKey = cloudLlmConfig!!.apiKey)
+            } else {
+                try {
+                    callOllamaApi(config, prompt)
+                } catch (e: Exception) {
+                    AppLogger.warn("OllamaClient", "Ollama /api/generate failed (${e.message}), trying OpenAI-compatible endpoint")
+                    callOpenAiCompatibleApi(config, prompt)
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.error("OllamaClient", "LLM call failed: ${e.message}", e)
+            ""
+        }
+    }
+
     private suspend fun callOllamaApi(config: AiEndpointConfig, prompt: String): String {
+        AppLogger.debug("OllamaClient", "Calling Ollama: model=${config.modelName}, prompt_length=${prompt.length} chars (~${prompt.split("\\s+".toRegex()).size} words)")
+
         val requestBody = OllamaGenerateRequest(
             model = config.modelName,
             prompt = prompt,
-            stream = false
+            stream = false,
+            options = OllamaOptions(num_ctx = 8192)  // Explicitly set context window
         )
 
         val response = httpClient.post("${config.baseUrl}/api/generate") {
@@ -189,8 +244,20 @@ class OllamaClient(
             setBody(json.encodeToString(OllamaGenerateRequest.serializer(), requestBody))
         }
 
+        val statusCode = response.status.value
         val responseBody: String = response.body()
+
+        if (statusCode != 200) {
+            AppLogger.error("OllamaClient", "Ollama returned HTTP $statusCode: ${responseBody.take(200)}")
+            throw RuntimeException("Ollama API error (HTTP $statusCode): ${responseBody.take(200)}")
+        }
+
         val ollamaResponse = json.decodeFromString<OllamaGenerateResponse>(responseBody)
+
+        if (ollamaResponse.response.isBlank()) {
+            AppLogger.warn("OllamaClient", "Ollama returned empty response for prompt (${prompt.length} chars)")
+        }
+
         return ollamaResponse.response
     }
 
@@ -441,12 +508,19 @@ class CloudLlmAuthenticationException(message: String) : Exception(message)
 data class OllamaGenerateRequest(
     val model: String,
     val prompt: String,
-    val stream: Boolean = false
+    val stream: Boolean = false,
+    val options: OllamaOptions? = null
+)
+
+@Serializable
+data class OllamaOptions(
+    val num_ctx: Int? = null,
+    val temperature: Double? = null
 )
 
 @Serializable
 data class OllamaGenerateResponse(
-    val response: String
+    val response: String = ""
 )
 
 @Serializable

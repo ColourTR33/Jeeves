@@ -111,7 +111,11 @@ private fun groupRecordings(recordings: List<Recording>): List<RecordingGroup> {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RecordingsListScreen() {
+fun RecordingsListScreen(
+    focusedRecordingId: String? = null,
+    onRecordingSelected: ((String?) -> Unit)? = null,
+    defaultContent: (@Composable () -> Unit)? = null
+) {
     val appState = LocalAppState.current
     val scope = rememberCoroutineScope()
 
@@ -127,6 +131,15 @@ fun RecordingsListScreen() {
 
     LaunchedEffect(Unit) {
         recordings = appState.recordingsRepository.getRecordings()
+        // If opened with a specific recording focused, select it
+        if (focusedRecordingId != null) {
+            val focused = recordings.find { it.id == focusedRecordingId }
+            if (focused != null) {
+                selectedRecording = focused
+                transcription = appState.recordingsRepository.getTranscription(focused.id)
+                summary = appState.recordingsRepository.getSummary(focused.id)
+            }
+        }
     }
 
     // Auto-refresh when processing completes
@@ -307,6 +320,7 @@ fun RecordingsListScreen() {
                                     isSelected = result.recording.id == selectedRecording?.id,
                                     onClick = {
                                         selectedRecording = result.recording
+                                        onRecordingSelected?.invoke(result.recording.id)
                                         scope.launch {
                                             transcription = appState.recordingsRepository.getTranscription(result.recording.id)
                                             summary = appState.recordingsRepository.getSummary(result.recording.id)
@@ -338,6 +352,7 @@ fun RecordingsListScreen() {
                                     isSelected = recording.id == selectedRecording?.id,
                                     onClick = {
                                         selectedRecording = recording
+                                        onRecordingSelected?.invoke(recording.id)
                                         scope.launch {
                                             transcription = appState.recordingsRepository.getTranscription(recording.id)
                                             summary = appState.recordingsRepository.getSummary(recording.id)
@@ -375,23 +390,27 @@ fun RecordingsListScreen() {
                 .padding(20.dp)
         ) {
             if (selectedRecording == null) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Filled.TouchApp,
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            "Select a recording",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                if (defaultContent != null) {
+                    defaultContent()
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Filled.TouchApp,
+                                contentDescription = null,
+                                modifier = Modifier.size(56.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Select a recording",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             } else {

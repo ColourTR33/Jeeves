@@ -189,13 +189,21 @@ class StreamingTranscriber(
             }
         }
 
-        return if (longestMatch >= 3) {
+        val result = if (longestMatch >= 3) {
             // Append only the non-overlapping portion
             val nonOverlapping = newWords.drop(longestMatch).joinToString(" ")
             if (nonOverlapping.isEmpty()) existing
             else "$existing $nonOverlapping"
         } else {
             "$existing ${newText.trim()}"
+        }
+
+        // Cap live transcript at 50,000 characters (~8000 words) to limit memory usage.
+        // For the post-recording full transcription, the full file is re-processed by Whisper anyway.
+        return if (result.length > 50_000) {
+            result.takeLast(50_000)
+        } else {
+            result
         }
     }
 

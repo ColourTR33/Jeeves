@@ -53,8 +53,10 @@ class RecordingManager(
     private val groqWhisperClient: GroqWhisperClient? = null,
     private val diarizationClient: DiarizationClient? = null,
     private val promptTemplateManager: PromptTemplateManager? = null,
-    /** Called after a recording is saved — used to auto-log time to the timesheet. */
-    var onRecordingSaved: ((Recording, String) -> Unit)? = null  // (recording, projectId) -> Unit
+    /** Called after a recording is saved — used to finalize time entry with handoff. */
+    var onRecordingSaved: ((Recording, String) -> Unit)? = null,  // (recording, projectId) -> Unit
+    /** Called when recording starts with a project selected — starts the time timer. */
+    var onRecordingStarted: ((String, String) -> Unit)? = null  // (projectId, title) -> Unit
 ) {
     private val _state = MutableStateFlow(RecordingState.IDLE)
     val state: StateFlow<RecordingState> = _state.asStateFlow()
@@ -92,6 +94,12 @@ class RecordingManager(
     var pendingProjectId: String = ""
     /** Private notes written during recording — saved to recording on stop. */
     var pendingNote: String = ""
+    /** Attendees/participants — each name becomes a tag on the recording for searchability. */
+    var pendingAttendees: String = ""
+    /** Reminders / follow-ups written during recording. */
+    var pendingReminders: String = ""
+    /** Meeting template — determines summarization prompt style. */
+    var pendingTemplate: MeetingTemplate = MeetingTemplate.GENERAL
 
     /**
      * Toggle recording on/off. Called by hotkey or button press.
@@ -125,6 +133,11 @@ class RecordingManager(
             audioRecorder.startRecording(outputPath, stereo = useStereo)
             _state.value = RecordingState.RECORDING
 
+            // Start time logging immediately if a project is selected
+            if (pendingProjectId.isNotBlank()) {
+                onRecordingStarted?.invoke(pendingProjectId, pendingTitle.ifBlank { "Meeting" })
+            }
+
             // Notify streaming callback after recording starts successfully
             streamingCallback?.onRecordingStarted(settings)
         } catch (e: Exception) {
@@ -153,6 +166,17 @@ class RecordingManager(
             val filePath = audioRecorder.stopRecording()
             val duration = currentTimeMillis() - _recordingStartTime
 
+            // Parse attendees from comma-separated string into a list of trimmed names
+            val attendeesList = pendingAttendees
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+
+            // Each attendee name becomes a tag (lowercased, spaces replaced with dashes)
+            val attendeeTags = attendeesList.map { name ->
+                name.lowercase().replace("\\s+".toRegex(), "-")
+            }
+
             val recording = Recording(
                 id = generateId(),
                 filePath = filePath,
@@ -160,19 +184,22 @@ class RecordingManager(
                 createdAt = currentTimeMillis(),
                 title = title.ifBlank { "Untitled Meeting" },
                 description = description,
+                template = pendingTemplate,
                 attachments = attachments,
-                postRecordingNote = pendingNote
+                postRecordingNote = pendingNote,
+                attendees = attendeesList,
+                reminders = pendingReminders,
+                tags = attendeeTags  // Attendees become searchable tags
             )
 
             _currentRecording.value = recording
             recordingsRepository.saveRecording(recording)
 
             // Auto-log time to timesheet if a project was selected (+10 min handoff buffer)
+            // The running timer was started in startRecording(). onRecordingSaved stops it
+            // and adjusts with the handoff duration.
             if (pendingProjectId.isNotBlank()) {
-                val meetingDurationWithHandoff = duration + 600_000L  // +10 minutes
                 onRecordingSaved?.invoke(recording, pendingProjectId)
-                // Use the callback's external handler (wired in AppInitializer)
-                // which calls timeManager.logMeetingTime with the handoff duration
             }
 
             // Enqueue for async processing — returns immediately
@@ -180,6 +207,9 @@ class RecordingManager(
             _state.value = RecordingState.IDLE
             pendingProjectId = ""
             pendingNote = ""
+            pendingAttendees = ""
+            pendingReminders = ""
+            pendingTemplate = MeetingTemplate.GENERAL
 
             AppLogger.info("RecordingManager", "Recording saved and enqueued: ${recording.id}")
         } catch (e: Exception) {

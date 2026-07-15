@@ -34,13 +34,15 @@ data class Recording(
     val durationMs: Long,
     val createdAt: Long,
     val title: String = "Untitled Meeting",
-    val description: String = "",  // agenda, context, attendee info
+    val description: String = "",  // agenda, context
     val template: MeetingTemplate = MeetingTemplate.GENERAL,
     val tags: List<String> = emptyList(),
     val folder: String = "",
     val highlights: List<Long> = emptyList(),  // Timestamp ms values of bookmarked moments
     val attachments: List<Attachment> = emptyList(),  // Screenshots captured during recording
-    val postRecordingNote: String = ""  // User-authored annotation added after recording
+    val postRecordingNote: String = "",  // User-authored annotation added after recording
+    val attendees: List<String> = emptyList(),  // Participant names (each also becomes a searchable tag)
+    val reminders: String = ""  // Follow-up reminders captured during recording
 )
 
 /**
@@ -225,5 +227,7 @@ data class AppSettings(
     val syncAudioDownloadPolicy: String = "ON_DEMAND",  // ALWAYS, WIFI_ONLY, ON_DEMAND
     // Recording archival settings
     val archiveAfterDays: Int = 7,    // Move audio to archive folder after N days (transcription/summary kept)
-    val deleteAudioAfterDays: Int = 30  // Delete archived audio files after N days (transcription/summary never deleted)
+    val deleteAudioAfterDays: Int = 30,  // Delete archived audio files after N days (transcription/summary never deleted)
+    // Logging
+    val verboseLogging: Boolean = false  // When true, DEBUG-level entries are logged + written to file
 )

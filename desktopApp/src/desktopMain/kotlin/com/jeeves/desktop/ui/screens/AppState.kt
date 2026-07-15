@@ -37,6 +37,8 @@ data class AppState(
     val calendarService: CalendarService,
     val timeManager: TimeTrackingManager,
     val reminderService: TimeReminderService,
+    val mantraManager: com.jeeves.shared.mantra.MantraManager,
+    val meetingScheduleManager: com.jeeves.desktop.meeting.MeetingScheduleManager,
     val callDetector: com.jeeves.desktop.audio.CallDetector? = null,
     val syncEngine: SyncEngine? = null
 )

@@ -45,6 +45,7 @@ class WeeklyExportGenerator {
      * @param settings Overhead settings
      * @param weekEndDate Friday date string for the subject line
      * @param weeklyPlan Optional weekly plan with per-project allocation targets
+     * @param upcomingLeaveNotice Optional notice about upcoming annual leave (shown in export)
      */
     fun generate(
         projects: List<Project>,
@@ -53,7 +54,8 @@ class WeeklyExportGenerator {
         backlogItems: Map<String, List<BacklogItem>>,
         settings: TimeReminderSettings,
         weekEndDate: String,
-        weeklyPlan: WeeklyPlan? = null
+        weeklyPlan: WeeklyPlan? = null,
+        upcomingLeaveNotice: String? = null
     ): String {
         val projectMap = projects.associateBy { it.id }
         val projectData = mutableListOf<ProjectExportData>()
@@ -173,7 +175,7 @@ class WeeklyExportGenerator {
             ))
         }
 
-        return buildPrompt(projectData, settings, weekEndDate)
+        return buildPrompt(projectData, settings, weekEndDate, upcomingLeaveNotice)
     }
 
     /**
@@ -190,7 +192,8 @@ class WeeklyExportGenerator {
     private fun buildPrompt(
         projectData: List<ProjectExportData>,
         settings: TimeReminderSettings,
-        weekEndDate: String
+        weekEndDate: String,
+        upcomingLeaveNotice: String? = null
     ): String {
         val sb = StringBuilder()
 
@@ -202,6 +205,15 @@ class WeeklyExportGenerator {
         sb.appendLine("- Completed This Week: [List]")
         sb.appendLine("- Planned for Next Week: [List]")
         sb.appendLine()
+
+        // Include upcoming leave notice so Gemini mentions it in each email
+        if (!upcomingLeaveNotice.isNullOrBlank()) {
+            sb.appendLine("⚠️ IMPORTANT — UPCOMING LEAVE NOTICE:")
+            sb.appendLine(upcomingLeaveNotice)
+            sb.appendLine("Include this leave notice in EVERY project email as a heads-up to the TDM.")
+            sb.appendLine()
+        }
+
         sb.appendLine("RAW DATA: Fixed Daily Admin: Standups (${settings.dailyStandupMinutes} mins/day), Email (${settings.dailyEmailMinutes} mins/day).")
         sb.appendLine()
 

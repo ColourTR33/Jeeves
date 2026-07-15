@@ -36,10 +36,13 @@ class WhisperClient(
         diarizationEnabled: Boolean,
         diarizationMode: DiarizationMode
     ): TranscriptionResult {
-        val audioBytes = readAudioFile(audioFilePath)
         val fileName = audioFilePath.substringAfterLast("/").substringAfterLast("\\")
 
-        AppLogger.info("WhisperClient", "Starting transcription of: $fileName (${audioBytes.size} bytes)")
+        // Read file into memory (necessary for multipart upload)
+        var audioBytes: ByteArray? = readAudioFile(audioFilePath)
+        val fileSize = audioBytes!!.size
+
+        AppLogger.info("WhisperClient", "Starting transcription of: $fileName ($fileSize bytes)")
         AppLogger.info("WhisperClient", "Using endpoint: ${config.baseUrl}, model: ${config.modelName}")
         if (diarizationEnabled) {
             AppLogger.info("WhisperClient", "Diarization enabled, mode: $diarizationMode")
@@ -57,10 +60,16 @@ class WhisperClient(
             try {
                 AppLogger.info("WhisperClient", "Trying endpoint: $endpoint")
 
+                // Re-read if we released the bytes on a previous failed attempt
+                if (audioBytes == null) {
+                    audioBytes = readAudioFile(audioFilePath)
+                }
+                val bytesToSend = audioBytes!!
+
                 val response = httpClient.submitFormWithBinaryData(
                     url = endpoint,
                     formData = formData {
-                        append("file", audioBytes, Headers.build {
+                        append("file", bytesToSend, Headers.build {
                             append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
                             append(HttpHeaders.ContentType, "audio/wav")
                         })
@@ -81,8 +90,9 @@ class WhisperClient(
                         isDiarizationRelatedError(responseBody)
                     ) {
                         AppLogger.warn("WhisperClient", "Diarization-related error from $endpoint (HTTP ${response.status.value}): $responseBody")
-                        val retryResult = retryWithoutDiarization(endpoint, audioBytes, fileName, config)
+                        val retryResult = retryWithoutDiarization(endpoint, bytesToSend, fileName, config)
                         if (retryResult != null) {
+                            audioBytes = null // Release memory
                             return retryResult
                         }
                         // Retry failed, fall through to try next endpoint
@@ -92,6 +102,9 @@ class WhisperClient(
                     lastError = RuntimeException("HTTP ${response.status.value}: $responseBody")
                     continue
                 }
+
+                // Success — release audio bytes immediately
+                audioBytes = null
 
                 AppLogger.info("WhisperClient", "Transcription successful from: $endpoint")
                 val whisperResponse = json.decodeFromString<WhisperApiResponse>(responseBody)

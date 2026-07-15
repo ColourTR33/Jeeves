@@ -12,6 +12,7 @@ import com.jeeves.desktop.hotkey.HotkeyManager
 import com.jeeves.desktop.ui.components.*
 import com.jeeves.desktop.ui.screens.LocalAppState
 import com.jeeves.desktop.ui.screens.LogViewerScreen
+import com.jeeves.desktop.ui.screens.MantraScreen
 import com.jeeves.desktop.ui.screens.RecordingScreen
 import com.jeeves.desktop.ui.screens.RecordingsListScreen
 import com.jeeves.desktop.ui.screens.TimeTrackingScreen
@@ -19,8 +20,8 @@ import kotlinx.coroutines.launch
 
 enum class Screen {
     RECORDING,
-    RECORDINGS_LIST,
     TIME_TRACKING,
+    MANTRAS,
     LOGS
 }
 
@@ -77,12 +78,27 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
     val detectedAppState = appState.callDetector?.detectedApp?.collectAsState()
     val detectedApp = detectedAppState?.value
 
+    // Meeting alert (5-min warning)
+    val meetingAlert by appState.meetingScheduleManager.pendingAlert.collectAsState()
+
+    // Play alert sound when a meeting alert fires
+    LaunchedEffect(meetingAlert) {
+        if (meetingAlert != null) {
+            // Play system beep sound 3 times to get attention
+            repeat(3) {
+                java.awt.Toolkit.getDefaultToolkit().beep()
+                kotlinx.coroutines.delay(400)
+            }
+        }
+    }
+
     val bannerMessage = when {
         isRecordingActive -> {
             val timeStr = formatElapsedTime(elapsedSeconds)
             val stateLabel = if (recordingState == com.jeeves.shared.domain.RecordingState.PAUSED) "Paused" else "Recording"
             "\uD83D\uDD34 $stateLabel — $timeStr"
         }
+        meetingAlert != null -> "\u23F0 ${meetingAlert!!.title} starts in < 5 minutes!"
         callDetected && !isRecordingActive -> "\uD83D\uDCDE $detectedApp detected — Start recording?"
         error != null -> error
         activeItem != null -> {
@@ -96,6 +112,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
     }
     val bannerType = when {
         isRecordingActive -> NotificationType.INFO
+        meetingAlert != null -> NotificationType.INFO
         callDetected && !isRecordingActive -> NotificationType.INFO
         error != null -> NotificationType.ERROR
         failedItem != null && activeItem == null -> NotificationType.ERROR
@@ -123,8 +140,8 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
 
                         when (currentScreen) {
                             Screen.RECORDING -> RecordingScreen(hotkeyManager)
-                            Screen.RECORDINGS_LIST -> RecordingsListScreen()
                             Screen.TIME_TRACKING -> TimeTrackingScreen()
+                            Screen.MANTRAS -> MantraScreen(appState.mantraManager)
                             Screen.LOGS -> LogViewerScreen()
                         }
                     }
@@ -140,6 +157,7 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
                             type = bannerType,
                             onDismiss = when {
                                 isRecordingActive -> null
+                                meetingAlert != null -> {{ appState.meetingScheduleManager.dismissAlert() }}
                                 callDetected && !isRecordingActive -> {{ appState.callDetector?.dismiss() }}
                                 error != null -> {{ appState.recordingManager.clearError() }}
                                 failedItem != null && activeItem == null -> {{ appState.recordingManager.processingQueue.clearCompleted() }}
@@ -168,9 +186,19 @@ private fun NavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
 
     NavigationBar {
         NavigationBarItem(icon = { }, label = { Text("Record") }, selected = currentScreen == Screen.RECORDING, onClick = { onNavigate(Screen.RECORDING) })
-        NavigationBarItem(icon = { }, label = { Text("Recordings") }, selected = currentScreen == Screen.RECORDINGS_LIST, onClick = { onNavigate(Screen.RECORDINGS_LIST) })
-        NavigationBarItem(icon = { }, label = { Text("Time") }, selected = currentScreen == Screen.TIME_TRACKING, onClick = { onNavigate(Screen.TIME_TRACKING) })
-        NavigationBarItem(icon = { }, label = { Text("Logs") }, selected = currentScreen == Screen.LOGS, onClick = { onNavigate(Screen.LOGS) })
+        NavigationBarItem(icon = { }, label = { Text("Projects") }, selected = currentScreen == Screen.TIME_TRACKING, onClick = { onNavigate(Screen.TIME_TRACKING) })
+        NavigationBarItem(icon = { }, label = { Text("Mantras") }, selected = currentScreen == Screen.MANTRAS, onClick = { onNavigate(Screen.MANTRAS) })
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        // Logs as a compact link pushed to the right
+        TextButton(
+            onClick = { onNavigate(Screen.LOGS) },
+            modifier = Modifier.padding(end = 12.dp)
+        ) {
+            Text("Logs", style = MaterialTheme.typography.labelMedium,
+                color = if (currentScreen == Screen.LOGS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
 
         // Sync status indicator (shown only when sync is enabled)
         if (syncEngine != null) {

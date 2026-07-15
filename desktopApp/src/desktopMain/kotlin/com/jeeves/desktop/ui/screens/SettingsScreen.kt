@@ -678,15 +678,12 @@ fun SettingsScreen() {
                             checked = hasStreamingEndpoint,
                             onCheckedChange = { enable ->
                                 settings = if (enable) {
-                                    // Pre-fill with main endpoint URL but bump port by 1 as a hint
+                                    // Use the main endpoint URL as-is (no port bump — user must configure their own)
                                     val mainUrl = settings.transcriptionEndpoint.baseUrl
-                                    val suggestedUrl = mainUrl.replace(Regex(":(\\d+)$")) { mr ->
-                                        ":${(mr.groupValues[1].toIntOrNull() ?: 8178) + 1}"
-                                    }
                                     settings.copy(
                                         streamingTranscriptionEndpoint = AiEndpointConfig(
                                             name = "Streaming Whisper",
-                                            baseUrl = suggestedUrl,
+                                            baseUrl = mainUrl,
                                             modelName = settings.transcriptionEndpoint.modelName,
                                             type = AiEndpointType.WHISPER_TRANSCRIPTION
                                         )
@@ -862,6 +859,41 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Logging
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Logging", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Verbose logging")
+                        Text(
+                            "Enables DEBUG-level output and writes logs to ~/Jeeves/logs/ for analysis",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = settings.verboseLogging,
+                        onCheckedChange = { enabled ->
+                            settings = settings.copy(verboseLogging = enabled)
+                            // Apply immediately (takes effect without restart for new messages)
+                            val logDir = java.io.File(System.getProperty("user.home"), "Jeeves/logs").absolutePath
+                            com.jeeves.shared.ai.AppLogger.setVerbose(enabled, logDir)
+                            isSaved = false
+                        }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Sync Configuration
         SyncSettingsSection(
             settings = settings,
@@ -889,6 +921,9 @@ fun SettingsScreen() {
                 onClick = {
                     scope.launch {
                         appState.settingsRepository.saveSettings(settings)
+                        // Apply verbose logging setting immediately
+                        val logDir = java.io.File(System.getProperty("user.home"), "Jeeves/logs").absolutePath
+                        com.jeeves.shared.ai.AppLogger.setVerbose(settings.verboseLogging, logDir)
                         isSaved = true
                     }
                 },

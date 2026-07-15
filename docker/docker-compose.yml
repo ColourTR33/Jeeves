@@ -1,0 +1,135 @@
+# Jeeves Full Stack — Docker Compose
+#
+# Services:
+#   - jeeves-app:       Desktop app backend (Java 17, headless mode for server use)
+#   - whisper-server:   Transcription (faster-whisper, CPU INT8)
+#   - diarization:      Speaker identification (pyannote 3.1)
+#   - ollama:           LLM summarization (qwen3:8b)
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f whisper-server
+#   docker compose down
+#
+# First-time setup:
+#   docker compose up -d ollama
+#   docker exec -it jeeves-ollama ollama pull qwen3:8b
+#
+# Volumes:
+#   - ./data/recordings   → audio files, transcriptions, summaries
+#   - ./data/settings     → settings.json
+#   - ./data/time         → time tracking data
+#   - ollama-models       → downloaded LLM models (persistent)
+
+version: "3.8"
+
+services:
+  # ─── Whisper Transcription Server ─────────────────────────────────────────────
+  whisper-server:
+    build:
+      context: ../whisper-server
+      dockerfile: ../docker/Dockerfile.whisper
+    container_name: jeeves-whisper
+    ports:
+      - "8178:8178"
+    environment:
+      - WHISPER_MODEL=small
+      - WHISPER_PORT=8178
+      - WHISPER_VERBOSE=0
+      - WHISPER_IDLE_UNLOAD=15
+      - WHISPER_MAX_FILE_MB=200
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "4.0"
+        reservations:
+          memory: 512M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8178/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ─── Speaker Diarization Server ───────────────────────────────────────────────
+  diarization:
+    build:
+      context: ../diarization-server
+      dockerfile: ../docker/Dockerfile.diarization
+    container_name: jeeves-diarization
+    ports:
+      - "8180:8180"
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - DIARIZATION_PORT=8180
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "4.0"
+        reservations:
+          memory: 1G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8180/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  # ─── Ollama (LLM Summarization) ──────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: jeeves-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+          cpus: "4.0"
+        reservations:
+          memory: 2G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ─── Jeeves Desktop App (Headless/Server Mode) ───────────────────────────────
+  # Note: For the desktop GUI app, run natively on Windows with the jar.
+  # This container is for a future server-mode API that could serve the iOS app.
+  # jeeves-app:
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile.app
+  #   container_name: jeeves-app
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - ./data/recordings:/app/data/recordings
+  #     - ./data/settings:/app/data/settings
+  #     - ./data/time:/app/data/time
+  #   environment:
+  #     - WHISPER_URL=http://whisper-server:8178
+  #     - OLLAMA_URL=http://ollama:11434
+  #     - DIARIZATION_URL=http://diarization:8180
+  #   depends_on:
+  #     whisper-server:
+  #       condition: service_healthy
+  #     ollama:
+  #       condition: service_healthy
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 1G
+  #   restart: unless-stopped
+
+volumes:
+  ollama-models:
+    driver: local

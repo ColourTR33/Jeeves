@@ -53,7 +53,13 @@ data class ProcessingItem(
 /**
  * Asynchronous processing queue that handles transcription and summarization
  * for recordings independently. Items are processed sequentially (one at a time)
- * to avoid overloading the local Whisper server.
+ * to avoid overloading the local Whisper server and to minimize memory usage.
+ *
+ * Memory management:
+ * - Only one recording is processed at a time (sequential processing)
+ * - Audio bytes are not held in this class (WhisperClient handles its own memory)
+ * - Completed items are auto-pruned to keep the queue small
+ * - GC is hinted between major processing steps
  */
 class ProcessingQueue(
     private val whisperClient: WhisperClient,
@@ -70,6 +76,9 @@ class ProcessingQueue(
 
     private val mutex = Mutex()
     private var processingJob: Job? = null
+
+    /** Maximum items to keep in queue history (completed/failed). Prevents unbounded growth. */
+    private val MAX_HISTORY = 20
 
     /**
      * Get the current processing status of a recording, or null if not in queue.
@@ -156,6 +165,19 @@ class ProcessingQueue(
             } ?: break // No more items to process
 
             processItem(nextItem)
+
+            // After each item, prune completed history and hint GC
+            pruneHistory()
+            System.gc()
+        }
+    }
+
+    /** Keep only the last MAX_HISTORY completed/failed items to prevent unbounded memory growth. */
+    private fun pruneHistory() {
+        _queue.update { currentQueue ->
+            val active = currentQueue.filter { it.status == ProcessingStatus.WAITING || it.status == ProcessingStatus.TRANSCRIBING || it.status == ProcessingStatus.DIARIZING || it.status == ProcessingStatus.SUMMARIZING }
+            val finished = currentQueue.filter { it.status == ProcessingStatus.COMPLETE || it.status == ProcessingStatus.FAILED }
+            active + finished.takeLast(MAX_HISTORY)
         }
     }
 
@@ -168,6 +190,7 @@ class ProcessingQueue(
 
         try {
             val settings = settingsRepository.getSettings()
+            AppLogger.debug("ProcessingQueue", "Processing ${recording.id}: file=${recording.filePath}, duration=${recording.durationMs}ms, summarizeOnly=${item.summarizeOnly}")
 
             val transcription: TranscriptionResult
 
@@ -231,6 +254,10 @@ class ProcessingQueue(
 
             recordingsRepository.saveTranscription(transcription)
             AppLogger.info("ProcessingQueue", "Transcription complete for ${recording.id}")
+
+            // Release memory pressure between transcription and summarization
+            System.gc()
+
             } // end else (full transcription path)
 
             // Step 2: Diarize (if pyannote mode is enabled and server is available)
@@ -280,25 +307,38 @@ class ProcessingQueue(
             // Resolve effective prompt template for the recording's meeting template
             val effectivePrompt = promptTemplateManager?.getEffectivePrompt(recording.template) ?: ""
 
-            val summary = ollamaClient.summarize(
-                transcription = transcriptionForSummary,
-                config = settings.summarizationEndpoint,
-                description = recording.description,
-                attachmentCount = recording.attachments.size,
-                promptTemplate = effectivePrompt,
-                meetingTemplate = recording.template,
-                cloudLlmConfig = settings.cloudLlmConfig
-            )
+            try {
+                val summary = ollamaClient.summarize(
+                    transcription = transcriptionForSummary,
+                    config = settings.summarizationEndpoint,
+                    description = recording.description,
+                    attachmentCount = recording.attachments.size,
+                    promptTemplate = effectivePrompt,
+                    meetingTemplate = recording.template,
+                    cloudLlmConfig = settings.cloudLlmConfig
+                )
 
-            recordingsRepository.saveSummary(summary)
+                if (summary.summary.isBlank()) {
+                    AppLogger.error("ProcessingQueue", "Summarization returned empty result for ${recording.id}")
+                    updateStatus(item.recordingId, ProcessingStatus.FAILED, "Summarization returned empty result")
+                    return
+                }
 
-            // Merge auto-generated tags back into the recording
-            if (summary.tags.isNotEmpty()) {
-                val updatedTags = (recording.tags + summary.tags).distinct()
-                recordingsRepository.updateRecording(recording.copy(tags = updatedTags))
+                recordingsRepository.saveSummary(summary)
+
+                // Merge auto-generated tags back into the recording
+                if (summary.tags.isNotEmpty()) {
+                    val updatedTags = (recording.tags + summary.tags).distinct()
+                    recordingsRepository.updateRecording(recording.copy(tags = updatedTags))
+                }
+
+                AppLogger.info("ProcessingQueue", "Summarization complete for ${recording.id}")
+            } catch (e: Exception) {
+                AppLogger.error("ProcessingQueue", "Summarization failed for ${recording.id}: ${e.message}", e)
+                // Summarization failure is non-fatal: transcription is saved, mark as failed but don't lose the transcription
+                updateStatus(item.recordingId, ProcessingStatus.FAILED, "Summarization failed: ${e.message}")
+                return
             }
-
-            AppLogger.info("ProcessingQueue", "Summarization complete for ${recording.id}")
 
             updateStatus(item.recordingId, ProcessingStatus.COMPLETE)
 

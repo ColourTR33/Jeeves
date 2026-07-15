@@ -7,6 +7,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +44,28 @@ import kotlinx.coroutines.withContext
 fun RecordingScreen(hotkeyManager: HotkeyManager) {
     val appState = LocalAppState.current
 
+    // Selected recording for detail view (null = show record/meetings view)
+    var selectedRecordingId by remember { mutableStateOf<String?>(null) }
+
+    // Use the full RecordingsListScreen with an embedded record view as default content
+    RecordingsListScreen(
+        focusedRecordingId = selectedRecordingId,
+        onRecordingSelected = { selectedRecordingId = it },
+        defaultContent = {
+            RecordMainPanel(hotkeyManager)
+        }
+    )
+}
+
+/**
+ * The main recording panel (meetings, record button, metadata).
+ * Extracted from the original RecordingScreen body.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecordMainPanel(hotkeyManager: HotkeyManager) {
+    val appState = LocalAppState.current
+
     val recordingState by appState.recordingManager.state.collectAsState()
     val error by appState.recordingManager.error.collectAsState()
     val progress by appState.recordingManager.transcriptionProgress.collectAsState()
@@ -65,6 +89,13 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
     var meetingDescription by remember { mutableStateOf(appState.recordingManager.pendingDescription) }
     var attachments by remember { mutableStateOf(appState.recordingManager.pendingAttachments) }
 
+    // Known attendees from past recordings (for auto-complete suggestions)
+    var knownAttendees by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        val recordings = appState.recordingsRepository.getRecordings()
+        knownAttendees = recordings.flatMap { it.attendees }.distinct().sorted()
+    }
+
     // Read settings to check if streaming is enabled
     var streamingEnabled by remember { mutableStateOf(true) }
     var audioSourceLabel by remember { mutableStateOf("🎤 Default Microphone") }
@@ -84,7 +115,7 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
         if (recordingState == RecordingState.RECORDING) {
             val currentStart = appState.recordingManager.recordingStartTime
             if (currentStart != lastKnownRecordingStart && currentStart != 0L) {
-                // Genuine new recording — reset metadata
+                // Genuine new recording — reset UI fields (but NOT projectId, which was set pre-recording)
                 lastKnownRecordingStart = currentStart
                 meetingTitle = ""
                 meetingDescription = ""
@@ -92,8 +123,12 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                 appState.recordingManager.pendingTitle = ""
                 appState.recordingManager.pendingDescription = ""
                 appState.recordingManager.pendingAttachments = emptyList()
-                appState.recordingManager.pendingProjectId = ""
+                // Note: pendingProjectId is NOT reset here — it was set before recording started
+                // and is needed for time logging on stop
                 appState.recordingManager.pendingNote = ""
+                appState.recordingManager.pendingAttendees = ""
+                appState.recordingManager.pendingReminders = ""
+                appState.recordingManager.pendingTemplate = MeetingTemplate.GENERAL
             }
             // Refresh streaming setting and audio source at start of each recording
             val settings = appState.settingsRepository.getSettings()
@@ -123,9 +158,10 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .padding(32.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Top
     ) {
         // Status indicator
         Text(
@@ -179,11 +215,11 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
         }
 
         // Live transcript display (shown during RECORDING, PAUSED, and PROCESSING when streaming is enabled)
-        if (streamingEnabled && (recordingState == RecordingState.RECORDING ||
+        if (recordingState == RecordingState.RECORDING ||
                     recordingState == RecordingState.PAUSED ||
-                    recordingState == RecordingState.PROCESSING)) {
+                    recordingState == RecordingState.PROCESSING) {
 
-            // Meeting metadata fields (during recording)
+            // Meeting metadata fields (always shown during recording regardless of streaming setting)
             if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.PAUSED) {
                 Card(
                     modifier = Modifier.fillMaxWidth(0.8f),
@@ -308,16 +344,51 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
 
                         // Attendees field
                         Spacer(modifier = Modifier.height(8.dp))
-                        var attendees by remember { mutableStateOf("") }
+                        var attendees by remember { mutableStateOf(appState.recordingManager.pendingAttendees) }
                         OutlinedTextField(
                             value = attendees,
-                            onValueChange = { attendees = it },
+                            onValueChange = {
+                                attendees = it
+                                appState.recordingManager.pendingAttendees = it
+                            },
                             label = { Text("Attendees") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             textStyle = MaterialTheme.typography.bodySmall,
-                            placeholder = { Text("Names of participants...") }
+                            placeholder = { Text("Comma-separated names (become searchable tags)") }
                         )
+
+                        // Auto-complete suggestions based on what's currently being typed
+                        if (knownAttendees.isNotEmpty() && attendees.isNotEmpty()) {
+                            // Get the last token being typed (after the last comma)
+                            val currentToken = attendees.substringAfterLast(",").trim().lowercase()
+                            if (currentToken.length >= 2) {
+                                val alreadyEntered = attendees.split(",").map { it.trim().lowercase() }.toSet()
+                                val suggestions = knownAttendees.filter {
+                                    it.lowercase().contains(currentToken) && it.lowercase() !in alreadyEntered
+                                }.take(5)
+                                if (suggestions.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        suggestions.forEach { name ->
+                                            FilterChip(
+                                                selected = false,
+                                                onClick = {
+                                                    // Replace the current partial token with the full name
+                                                    val prefix = attendees.substringBeforeLast(",", "").let {
+                                                        if (it.isNotEmpty()) "$it, " else ""
+                                                    }
+                                                    attendees = "$prefix$name, "
+                                                    appState.recordingManager.pendingAttendees = attendees
+                                                },
+                                                label = { Text(name, style = MaterialTheme.typography.labelSmall) },
+                                                modifier = Modifier.height(24.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         // Private notes during recording
                         Spacer(modifier = Modifier.height(8.dp))
@@ -337,10 +408,13 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
 
                         // Reminders
                         Spacer(modifier = Modifier.height(8.dp))
-                        var reminders by remember { mutableStateOf("") }
+                        var reminders by remember { mutableStateOf(appState.recordingManager.pendingReminders) }
                         OutlinedTextField(
                             value = reminders,
-                            onValueChange = { reminders = it },
+                            onValueChange = {
+                                reminders = it
+                                appState.recordingManager.pendingReminders = it
+                            },
                             label = { Text("Reminders / Follow-ups") },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp, max = 80.dp),
                             textStyle = MaterialTheme.typography.bodySmall,
@@ -385,8 +459,6 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
             }
             Spacer(modifier = Modifier.height(16.dp))
         }
-
-        // Processing progress
         progress?.let { msg ->
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth(0.6f))
             Spacer(modifier = Modifier.height(8.dp))
@@ -521,7 +593,7 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-            var selectedTemplate by remember { mutableStateOf(MeetingTemplate.GENERAL) }
+            var selectedTemplate by remember { mutableStateOf(appState.recordingManager.pendingTemplate) }
             var expanded by remember { mutableStateOf(false) }
             ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
                 OutlinedTextField(
@@ -542,46 +614,212 @@ fun RecordingScreen(hotkeyManager: HotkeyManager) {
                                         .replaceFirstChar { it.uppercase() }
                                 )
                             },
-                            onClick = { selectedTemplate = template; expanded = false }
+                            onClick = {
+                                selectedTemplate = template
+                                appState.recordingManager.pendingTemplate = template
+                                expanded = false
+                            }
                         )
                     }
                 }
             }
 
-            // Calendar integration - show next meeting
-            var nextMeeting by remember { mutableStateOf<CalendarEvent?>(null) }
-            LaunchedEffect(recordingState) {
-                if (recordingState == RecordingState.IDLE) {
-                    while (isActive && recordingState == RecordingState.IDLE) {
-                        nextMeeting = withContext(Dispatchers.IO) {
-                            appState.calendarService.getNextMeeting()
-                        }
-                        delay(60_000)
+            // ─── Scheduled Meetings (Today + Tomorrow) ─────────────────────────────
+            Spacer(modifier = Modifier.height(16.dp))
+            val scheduledMeetings by appState.meetingScheduleManager.todayMeetings.collectAsState()
+            val tomorrowMeetings by appState.meetingScheduleManager.tomorrowMeetings.collectAsState()
+            var showImportDialog by remember { mutableStateOf(false) }
+            var showAddMeetingDialog by remember { mutableStateOf(false) }
+            var showTomorrow by remember { mutableStateOf(false) }
+
+            Row(
+                Modifier.fillMaxWidth(0.8f),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Day toggle chips
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = !showTomorrow,
+                        onClick = { showTomorrow = false },
+                        label = { Text("Today (${scheduledMeetings.size})", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.height(28.dp)
+                    )
+                    FilterChip(
+                        selected = showTomorrow,
+                        onClick = { showTomorrow = true },
+                        label = { Text("Tomorrow (${tomorrowMeetings.size})", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.height(28.dp)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(onClick = { showImportDialog = true }, modifier = Modifier.height(28.dp)) {
+                        Icon(Icons.Filled.Upload, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp))
+                        Text("Import CSV", style = MaterialTheme.typography.labelSmall)
+                    }
+                    OutlinedButton(onClick = { showAddMeetingDialog = true }, modifier = Modifier.height(28.dp)) {
+                        Icon(Icons.Filled.Add, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp))
+                        Text("Add", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(6.dp))
 
-            if (nextMeeting != null) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Card(
-                    shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            val displayMeetings = if (showTomorrow) tomorrowMeetings else scheduledMeetings
+
+            if (displayMeetings.isEmpty()) {
+                Text("No meetings scheduled. Import a CSV or add manually.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                val now = System.currentTimeMillis()
+                displayMeetings.forEach { meeting ->
+                    val isPast = meeting.endTime < now
+                    val isNow = meeting.startTime <= now && meeting.endTime > now
+                    val startStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(meeting.startTime))
+                    val endStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(meeting.endTime))
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(0.8f).padding(vertical = 2.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = when {
+                                meeting.isRecorded -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                isNow -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                isPast -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                else -> MaterialTheme.colorScheme.surface
+                            }
+                        )
                     ) {
-                        Text(
-                            text = if (nextMeeting!!.isOngoing) "🔴 In meeting: " else "📅 Next: ",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            text = nextMeeting!!.title,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            // Time
+                            Text("$startStr-$endStr", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(85.dp))
+                            // Title + organizer
+                            Column(Modifier.weight(1f)) {
+                                Text(meeting.title, style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = if (isNow) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                if (meeting.organizer.isNotBlank()) {
+                                    Text(meeting.organizer, style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                }
+                            }
+                            // Status / actions
+                            if (meeting.isRecorded) {
+                                Icon(Icons.Filled.CheckCircle, "Recorded", tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
+                            } else if (!isPast) {
+                                // Record button — pre-fills fields and starts recording
+                                IconButton(
+                                    onClick = {
+                                        appState.recordingManager.pendingTitle = meeting.title
+                                        appState.recordingManager.pendingDescription = "Organizer: ${meeting.organizer}"
+                                        appState.recordingManager.toggleRecording()
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Filled.FiberManualRecord, "Record", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            // Delete
+                            IconButton(
+                                onClick = { appState.meetingScheduleManager.deleteMeeting(meeting.id) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Filled.Close, "Remove", modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                            }
+                        }
                     }
                 }
+            }
+
+            // Import CSV dialog
+            if (showImportDialog) {
+                var csvText by remember { mutableStateOf("") }
+                AlertDialog(
+                    onDismissRequest = { showImportDialog = false },
+                    title = { Text("Import Meetings from CSV") },
+                    text = {
+                        Column {
+                            Text("Paste CSV content (from Outlook/Google Calendar export).",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Format: \"Event Title\",\"Start Time\",\"End Time\",\"Clash\",\"Organizer\"",
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = csvText, onValueChange = { csvText = it },
+                                label = { Text("CSV Content") },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 300.dp),
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                maxLines = 20
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            appState.meetingScheduleManager.importCsv(csvText)
+                            showImportDialog = false
+                        }, enabled = csvText.isNotBlank()) { Text("Import") }
+                    },
+                    dismissButton = { TextButton(onClick = { showImportDialog = false }) { Text("Cancel") } }
+                )
+            }
+
+            // Add meeting dialog
+            if (showAddMeetingDialog) {
+                var meetTitle by remember { mutableStateOf("") }
+                var meetStartHour by remember { mutableStateOf("09") }
+                var meetStartMin by remember { mutableStateOf("00") }
+                var meetEndHour by remember { mutableStateOf("09") }
+                var meetEndMin by remember { mutableStateOf("30") }
+                var meetOrganizer by remember { mutableStateOf("") }
+
+                AlertDialog(
+                    onDismissRequest = { showAddMeetingDialog = false },
+                    title = { Text("Add Meeting") },
+                    text = {
+                        Column {
+                            OutlinedTextField(value = meetTitle, onValueChange = { meetTitle = it },
+                                label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedTextField(value = meetStartHour, onValueChange = { meetStartHour = it },
+                                    label = { Text("Start H") }, modifier = Modifier.width(65.dp), singleLine = true)
+                                OutlinedTextField(value = meetStartMin, onValueChange = { meetStartMin = it },
+                                    label = { Text("M") }, modifier = Modifier.width(50.dp), singleLine = true)
+                                Text(" — ", modifier = Modifier.align(Alignment.CenterVertically))
+                                OutlinedTextField(value = meetEndHour, onValueChange = { meetEndHour = it },
+                                    label = { Text("End H") }, modifier = Modifier.width(65.dp), singleLine = true)
+                                OutlinedTextField(value = meetEndMin, onValueChange = { meetEndMin = it },
+                                    label = { Text("M") }, modifier = Modifier.width(50.dp), singleLine = true)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(value = meetOrganizer, onValueChange = { meetOrganizer = it },
+                                label = { Text("Organizer (optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            val cal = java.util.Calendar.getInstance()
+                            val sh = meetStartHour.toIntOrNull() ?: 9
+                            val sm = meetStartMin.toIntOrNull() ?: 0
+                            val eh = meetEndHour.toIntOrNull() ?: (sh + 1)
+                            val em = meetEndMin.toIntOrNull() ?: 0
+                            cal.set(java.util.Calendar.HOUR_OF_DAY, sh)
+                            cal.set(java.util.Calendar.MINUTE, sm)
+                            cal.set(java.util.Calendar.SECOND, 0)
+                            val startMs = cal.timeInMillis
+                            cal.set(java.util.Calendar.HOUR_OF_DAY, eh)
+                            cal.set(java.util.Calendar.MINUTE, em)
+                            val endMs = cal.timeInMillis
+                            if (meetTitle.isNotBlank()) {
+                                appState.meetingScheduleManager.addMeeting(meetTitle, startMs, endMs, meetOrganizer)
+                                showAddMeetingDialog = false
+                            }
+                        }, enabled = meetTitle.isNotBlank()) { Text("Add") }
+                    },
+                    dismissButton = { TextButton(onClick = { showAddMeetingDialog = false }) { Text("Cancel") } }
+                )
             }
         }
 

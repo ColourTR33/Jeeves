@@ -63,7 +63,8 @@ fun TimeTrackingScreen() {
     }
 
     // Refresh data when week changes or entries change
-    LaunchedEffect(weekOffset, todayEntries) {
+    val entryChangeCounter by appState.timeManager.entryChangeCounter.collectAsState()
+    LaunchedEffect(weekOffset, todayEntries, entryChangeCounter) {
         val today = TimeTrackingManager.epochToDateString(System.currentTimeMillis())
         currentWeekDate = if (weekOffset == 0) today else {
             // Navigate by weekOffset * 7 days
@@ -121,7 +122,7 @@ fun TimeTrackingScreen() {
                     TextButton(onClick = { weekOffset = 0 }) { Text("Today", style = MaterialTheme.typography.labelSmall) }
                 }
             }
-            IconButton(onClick = { if (weekOffset < 4) weekOffset++ }) { Icon(Icons.Filled.ChevronRight, "Next week") }
+            IconButton(onClick = { if (weekOffset < 12) weekOffset++ }) { Icon(Icons.Filled.ChevronRight, "Next week") }
         }
 
         Spacer(Modifier.height(8.dp))
@@ -240,10 +241,28 @@ private fun TimesheetTab(
                         p.id to appState.timeManager.getBacklog(p.id)
                     }
                     // Get the actual time entries for the week (the logged hours)
-                    val timesheet = appState.timeManager.getWeeklyTimesheet(currentWeekDate)
                     val timeEntries = appState.timeManager.getTimeEntriesForWeek(currentWeekDate)
                     val plan = appState.timeManager.getWeeklyPlan(currentWeekDate)
-                    exportText = generator.generate(projects, timeEntries, sprintItems, backlogByProject, settings, currentWeekDate, plan)
+
+                    // Detect upcoming annual leave in the next 2 weeks
+                    val holidayProject = projects.find { it.name.equals("Holiday", ignoreCase = true) }
+                    var leaveNotice: String? = null
+                    if (holidayProject != null) {
+                        val currentEpoch = com.jeeves.shared.time.TimeTrackingManager.dateStringToEpoch(currentWeekDate)
+                        val week1Date = com.jeeves.shared.time.TimeTrackingManager.epochToDateString(currentEpoch + 7 * 86_400_000L)
+                        val week2Date = com.jeeves.shared.time.TimeTrackingManager.epochToDateString(currentEpoch + 14 * 86_400_000L)
+                        val week1Entries = appState.timeManager.getTimeEntriesForWeek(week1Date)
+                            .filter { it.projectId == holidayProject.id }
+                        val week2Entries = appState.timeManager.getTimeEntriesForWeek(week2Date)
+                            .filter { it.projectId == holidayProject.id }
+                        val leaveDates = (week1Entries + week2Entries).map { it.date }.distinct().sorted()
+                        if (leaveDates.isNotEmpty()) {
+                            val daysStr = leaveDates.joinToString(", ")
+                            leaveNotice = "I will be on Annual Leave on the following dates: $daysStr. Please plan handover accordingly."
+                        }
+                    }
+
+                    exportText = generator.generate(projects, timeEntries, sprintItems, backlogByProject, settings, currentWeekDate, plan, leaveNotice)
                     showExportDialog = true
                 }
             }) {
@@ -259,30 +278,56 @@ private fun TimesheetTab(
 
         Spacer(Modifier.width(20.dp))
 
-        // Today's entries
+        // Week entries (for the currently selected week)
         Column(Modifier.weight(0.4f)) {
-            val todayEntries by appState.timeManager.todayEntries.collectAsState()
             val projects by appState.timeManager.projects.collectAsState()
             var showManualEntry by remember { mutableStateOf(false) }
             var editingEntry by remember { mutableStateOf<TimeEntry?>(null) }
+            val entryChangeCounter by appState.timeManager.entryChangeCounter.collectAsState()
+
+            // Load entries for the selected week
+            var weekEntries by remember { mutableStateOf<List<TimeEntry>>(emptyList()) }
+            LaunchedEffect(currentWeekDate, entryChangeCounter) {
+                weekEntries = appState.timeManager.getTimeEntriesForWeek(currentWeekDate)
+            }
+
+            var showHolidayDialog by remember { mutableStateOf(false) }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Today", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                OutlinedButton(onClick = { showManualEntry = true }, modifier = Modifier.height(30.dp)) {
-                    Icon(Icons.Filled.Add, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("Log Time", style = MaterialTheme.typography.labelSmall)
+                Text("Time Log", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(onClick = { showHolidayDialog = true }, modifier = Modifier.height(30.dp)) {
+                        Icon(Icons.Filled.BeachAccess, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("Add Holiday", style = MaterialTheme.typography.labelSmall)
+                    }
+                    OutlinedButton(onClick = { showManualEntry = true }, modifier = Modifier.height(30.dp)) {
+                        Icon(Icons.Filled.Add, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("Log Time", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
-            if (todayEntries.isEmpty()) {
-                Text("No entries today", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (weekEntries.isEmpty()) {
+                Text("No entries this week", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
+                // Group by day and show with day headers
+                val grouped = weekEntries.sortedByDescending { it.startTime }.groupBy { it.date }
                 LazyColumn {
-                    items(todayEntries) { entry ->
-                        val proj = projects.find { it.id == entry.projectId }
-                        TodayItem(entry, proj,
-                            onDelete = { appState.timeManager.deleteEntry(entry.id) },
-                            onEdit = { editingEntry = it }
-                        )
+                    grouped.forEach { (date, entries) ->
+                        item {
+                            Text(
+                                date,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                            )
+                        }
+                        items(entries) { entry ->
+                            val proj = projects.find { it.id == entry.projectId }
+                            TodayItem(entry, proj,
+                                onDelete = { appState.timeManager.deleteEntry(entry.id) },
+                                onEdit = { editingEntry = it }
+                            )
+                        }
                     }
                 }
             }
@@ -306,6 +351,29 @@ private fun TimesheetTab(
                     onSubmit = { projectId, description, date, durationMinutes ->
                         appState.timeManager.addManualEntry(projectId, description, date, durationMinutes * 60_000L)
                         showManualEntry = false
+                    }
+                )
+            }
+
+            if (showHolidayDialog) {
+                HolidayDateRangeDialog(
+                    onDismiss = { showHolidayDialog = false },
+                    onSubmit = { startDate, endDate ->
+                        // Find or create the Holiday project
+                        val holidayProject = projects.find { it.name.equals("Holiday", ignoreCase = true) }
+                        if (holidayProject != null) {
+                            // Generate dates between start and end (inclusive), skip weekends
+                            val dates = generateWeekdayDateRange(startDate, endDate)
+                            dates.forEach { date ->
+                                appState.timeManager.addManualEntry(
+                                    projectId = holidayProject.id,
+                                    taskDescription = "Annual Leave",
+                                    date = date,
+                                    durationMs = 8 * 3_600_000L  // 8 hours per day
+                                )
+                            }
+                        }
+                        showHolidayDialog = false
                     }
                 )
             }
@@ -873,9 +941,20 @@ private fun ManualTimeEntryDialog(
                 OutlinedTextField(
                     value = dateText, onValueChange = { dateText = it },
                     label = { Text("Date (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                    placeholder = { Text("2026-06-19") }
+                    placeholder = { Text("2026-07-14") }
                 )
-                Text("Use a past date to log time retroactively", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Enter any date — today, yesterday, or any past/future day", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                // Quick-select: today, yesterday, day before
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val today = com.jeeves.shared.time.TimeTrackingManager.epochToDateString(System.currentTimeMillis())
+                    val yesterday = com.jeeves.shared.time.TimeTrackingManager.epochToDateString(System.currentTimeMillis() - 86_400_000)
+                    val dayBefore = com.jeeves.shared.time.TimeTrackingManager.epochToDateString(System.currentTimeMillis() - 2 * 86_400_000)
+                    FilterChip(selected = dateText == today, onClick = { dateText = today }, label = { Text("Today") })
+                    FilterChip(selected = dateText == yesterday, onClick = { dateText = yesterday }, label = { Text("Yesterday") })
+                    FilterChip(selected = dateText == dayBefore, onClick = { dateText = dayBefore }, label = { Text(dayBefore.takeLast(5)) })
+                }
             }
         },
         confirmButton = {
@@ -897,6 +976,7 @@ private fun ManualTimeEntryDialog(
 @Composable
 private fun WeeklyExportDialog(exportText: String, onDismiss: () -> Unit) {
     var copied by remember { mutableStateOf(false) }
+    var saved by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -910,7 +990,7 @@ private fun WeeklyExportDialog(exportText: String, onDismiss: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "Copy this prompt and paste into Gemini to generate your weekly summary emails.",
+                    "Copy this prompt and paste into Gemini, or save to file for automation.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -928,19 +1008,42 @@ private fun WeeklyExportDialog(exportText: String, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+                if (saved) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("Saved to ~/Jeeves/exports/", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
-                    clipboard.setContents(java.awt.datatransfer.StringSelection(exportText), null)
-                    copied = true
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        // Save to file
+                        val exportsDir = java.io.File(System.getProperty("user.home"), "Jeeves/exports")
+                        exportsDir.mkdirs()
+                        // Extract week date from export text for the filename
+                        val weekMatch = Regex("Week:\\s*(\\d{4}-\\d{2}-\\d{2})").find(exportText)
+                        val weekDate = weekMatch?.groupValues?.get(1) ?: com.jeeves.shared.time.TimeTrackingManager.epochToDateString(System.currentTimeMillis())
+                        val file = java.io.File(exportsDir, "weekly-export-$weekDate.md")
+                        file.writeText(exportText)
+                        saved = true
+                    }
+                ) {
+                    Icon(Icons.Filled.Save, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Save to File")
                 }
-            ) {
-                Icon(Icons.Filled.ContentCopy, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(if (copied) "Copied!" else "Copy to Clipboard")
+                Button(
+                    onClick = {
+                        val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                        clipboard.setContents(java.awt.datatransfer.StringSelection(exportText), null)
+                        copied = true
+                    }
+                ) {
+                    Icon(Icons.Filled.ContentCopy, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (copied) "Copied!" else "Copy to Clipboard")
+                }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
@@ -1391,19 +1494,34 @@ private fun TimesheetGrid(ts: WeeklyTimesheet, onRowClick: (String) -> Unit = {}
 
 @Composable
 private fun TodayItem(entry: TimeEntry, project: Project?, onDelete: () -> Unit, onEdit: (TimeEntry) -> Unit = {}) {
-    Card(Modifier.fillMaxWidth().padding(vertical = 2.dp)
-        .clickable(enabled = !entry.isRunning) { onEdit(entry) },
+    Card(Modifier.fillMaxWidth().padding(vertical = 2.dp),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = if (entry.isRunning) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (project != null) { Box(Modifier.size(8.dp).clip(CircleShape).background(hexToColor(project.color))); Spacer(Modifier.width(6.dp)); Text(project.name, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium) }
-            if (entry.taskDescription.isNotEmpty()) Text(" - ${entry.taskDescription}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
-            Spacer(Modifier.weight(1f))
-            if (entry.isRunning) Text("●", color = Color.Red) else Text(fmtShort(entry.durationMs ?: 0), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (!entry.isRunning) {
-                IconButton(onClick = { onEdit(entry) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Filled.Edit, "Edit", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)) }
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Left: project + description (takes available space, truncates if needed)
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                if (project != null) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(hexToColor(project.color)))
+                    Spacer(Modifier.width(6.dp))
+                    Text(project.name, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1)
+                }
+                if (entry.taskDescription.isNotEmpty()) {
+                    Text(" - ${entry.taskDescription}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) { Icon(Icons.Filled.Close, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) }
+            // Right: duration + buttons (fixed width area)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End, modifier = Modifier.width(120.dp)) {
+                if (entry.isRunning) {
+                    Text("●", color = Color.Red)
+                } else {
+                    Text(fmtShort(entry.durationMs ?: 0), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.width(4.dp))
+                if (!entry.isRunning) {
+                    IconButton(onClick = { onEdit(entry) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Filled.Edit, "Edit", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)) }
+                }
+                IconButton(onClick = { onDelete() }, modifier = Modifier.size(32.dp)) { Icon(Icons.Filled.Delete, "Delete", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) }
+            }
         }
     }
 }
@@ -1428,3 +1546,97 @@ private fun hexToColor(hex: String): Color { return try { val c = hex.removePref
 private fun fmtTimer(ms: Long): String { val s = ms / 1000; return String.format("%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60) }
 private fun fmtShort(ms: Long): String { val m = ms / 60000; val h = m / 60; return if (h > 0) "${h}h ${m % 60}m" else "${m}m" }
 private fun addDay(d: String): String { val p = d.split("-").map { it.toInt() }; var y = p[0]; var m = p[1]; var day = p[2]; val dim = intArrayOf(0,31,28,31,30,31,30,31,31,30,31,30,31); if (y%4==0&&(y%100!=0||y%400==0)) dim[2]=29; day++; if (day>dim[m]){day=1;m++}; if (m>12){m=1;y++}; return String.format("%04d-%02d-%02d",y,m,day) }
+
+// ─── Holiday Date Range Dialog ──────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HolidayDateRangeDialog(
+    onDismiss: () -> Unit,
+    onSubmit: (startDate: String, endDate: String) -> Unit
+) {
+    val today = com.jeeves.shared.time.TimeTrackingManager.epochToDateString(System.currentTimeMillis())
+    var startDate by remember { mutableStateOf(today) }
+    var endDate by remember { mutableStateOf(today) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.BeachAccess, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Add Annual Leave")
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    "Logs 8 hours per weekday against the Holiday project. Weekends are automatically skipped.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = startDate, onValueChange = { startDate = it },
+                    label = { Text("Start Date (YYYY-MM-DD)") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = endDate, onValueChange = { endDate = it },
+                    label = { Text("End Date (YYYY-MM-DD)") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
+
+                // Preview how many days
+                val days = try { generateWeekdayDateRange(startDate, endDate).size } catch (_: Exception) { 0 }
+                if (days > 0) {
+                    Text(
+                        "$days working day${if (days > 1) "s" else ""} (${days * 8}h total)",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (startDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) &&
+                        endDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) &&
+                        startDate <= endDate
+                    ) {
+                        onSubmit(startDate, endDate)
+                    }
+                }
+            ) { Text("Add Leave") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+/**
+ * Generate a list of YYYY-MM-DD date strings for all weekdays (Mon-Fri)
+ * between [startDate] and [endDate] inclusive.
+ */
+private fun generateWeekdayDateRange(startDate: String, endDate: String): List<String> {
+    val dates = mutableListOf<String>()
+    var current = startDate
+    // Safety: max 60 days to prevent infinite loops on bad input
+    var safety = 0
+    while (current <= endDate && safety < 60) {
+        // Check if this date is a weekday
+        val parts = current.split("-").map { it.toInt() }
+        val cal = java.util.Calendar.getInstance()
+        cal.set(parts[0], parts[1] - 1, parts[2])
+        val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
+        if (dow != java.util.Calendar.SATURDAY && dow != java.util.Calendar.SUNDAY) {
+            dates.add(current)
+        }
+        current = addDay(current)
+        safety++
+    }
+    return dates
+}

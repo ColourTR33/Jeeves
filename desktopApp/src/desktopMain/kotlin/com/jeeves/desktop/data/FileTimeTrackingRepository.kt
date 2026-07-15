@@ -60,9 +60,18 @@ class FileTimeTrackingRepository : TimeTrackingRepository {
     }
 
     override suspend fun deleteTimeEntry(id: String) {
-        val today = TimeTrackingManager.epochToDateString(System.currentTimeMillis())
-        val list = getTimeEntriesForDate(today).filter { it.id != id }
-        entriesFile(today).writeText(json.encodeToString(EList.serializer(), EList(list)))
+        // Search all entry files for this ID (entries are stored per-day)
+        val files = timeDir.listFiles()?.filter { it.name.startsWith("entries_") && it.name.endsWith(".json") } ?: return
+        for (file in files) {
+            try {
+                val entries = json.decodeFromString<EList>(file.readText()).items
+                if (entries.any { it.id == id }) {
+                    val filtered = entries.filter { it.id != id }
+                    file.writeText(json.encodeToString(EList.serializer(), EList(filtered)))
+                    return
+                }
+            } catch (_: Exception) { /* skip corrupted files */ }
+        }
     }
 
     override suspend fun getReminderSettings(): TimeReminderSettings = try {

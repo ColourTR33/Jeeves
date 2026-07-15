@@ -22,6 +22,10 @@ class TimeTrackingManager(
     private val _todayEntries = MutableStateFlow<List<TimeEntry>>(emptyList())
     val todayEntries: StateFlow<List<TimeEntry>> = _todayEntries.asStateFlow()
 
+    /** Increments whenever any time entry is added/modified/deleted. UI observes this to trigger refresh. */
+    private val _entryChangeCounter = MutableStateFlow(0L)
+    val entryChangeCounter: StateFlow<Long> = _entryChangeCounter.asStateFlow()
+
     private val _reminderSettings = MutableStateFlow(TimeReminderSettings())
     val reminderSettings: StateFlow<TimeReminderSettings> = _reminderSettings.asStateFlow()
 
@@ -50,6 +54,29 @@ class TimeTrackingManager(
     }
 
     fun stopTimer() { scope.launch { stopTimerInternal(); refreshToday() } }
+
+    /**
+     * Stop the currently running timer and add a handoff buffer to its duration.
+     * Used when a meeting recording stops — the timer was started when recording began,
+     * and the handoff accounts for post-meeting wrap-up time.
+     */
+    fun stopTimerAndAddHandoff(linkedRecordingId: String, handoffMs: Long) {
+        scope.launch {
+            val running = _currentEntry.value ?: return@launch
+            val now = currentTimeMillis()
+            val actualDuration = now - running.startTime
+            val totalDuration = actualDuration + handoffMs
+            val stopped = running.copy(
+                endTime = running.startTime + totalDuration,
+                durationMs = totalDuration,
+                isRunning = false,
+                linkedRecordingId = linkedRecordingId
+            )
+            repository.updateTimeEntry(stopped)
+            _currentEntry.value = null
+            refreshToday()
+        }
+    }
 
     private suspend fun stopTimerInternal() {
         val running = _currentEntry.value ?: return
@@ -679,6 +706,7 @@ class TimeTrackingManager(
 
     private suspend fun refreshToday() {
         _todayEntries.value = repository.getTimeEntriesForDate(epochToDateString(currentTimeMillis()))
+        _entryChangeCounter.value++
     }
 
     private fun getWeekBounds(dateStr: String): Pair<String, String> {
