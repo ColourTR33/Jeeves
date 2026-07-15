@@ -22,12 +22,18 @@ localStorage.setItem('deviceId', DEVICE_ID.replace('pwa-', ''));
 
 // ─── Init ───────────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+
+function init() {
   registerServiceWorker();
   loadSettings();
   setupEventListeners();
   initDb();
-});
+}
 
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
@@ -53,6 +59,13 @@ function saveSettings() {
   localStorage.setItem('couchDbUrl', url);
   localStorage.setItem('couchDbUser', user);
   localStorage.setItem('couchDbPass', pass);
+
+  // Visual feedback
+  const btn = document.getElementById('btn-save-settings');
+  btn.textContent = 'Saved! Connecting...';
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = 'Save & Connect'; btn.disabled = false; }, 2000);
+
   initDb();
 }
 
