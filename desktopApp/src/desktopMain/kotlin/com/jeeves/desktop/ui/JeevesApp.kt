@@ -1,6 +1,8 @@
 package com.jeeves.desktop.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -191,13 +193,25 @@ private fun NavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Logs as a compact link pushed to the right
-        TextButton(
-            onClick = { onNavigate(Screen.LOGS) },
-            modifier = Modifier.padding(end = 12.dp)
-        ) {
-            Text("Logs", style = MaterialTheme.typography.labelMedium,
-                color = if (currentScreen == Screen.LOGS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        // Settings & Logs menu (gear icon with dropdown)
+        var showMenu by remember { mutableStateOf(false) }
+        Box {
+            IconButton(onClick = { showMenu = true }) {
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = "Menu",
+                    modifier = Modifier.size(20.dp),
+                    tint = if (currentScreen == Screen.LOGS) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Logs") },
+                    onClick = { onNavigate(Screen.LOGS); showMenu = false },
+                    leadingIcon = { Icon(Icons.Filled.Article, null, Modifier.size(18.dp)) }
+                )
+            }
         }
 
         // Sync status indicator (shown only when sync is enabled)

@@ -203,6 +203,22 @@ fun RecordingsListScreen(
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.weight(1f))
+                    // "New Recording" button to deselect and return to record view
+                    if (selectedRecording != null && defaultContent != null) {
+                        FilledTonalButton(
+                            onClick = {
+                                selectedRecording = null
+                                onRecordingSelected?.invoke(null)
+                            },
+                            modifier = Modifier.height(30.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                        ) {
+                            Icon(Icons.Filled.FiberManualRecord, null, Modifier.size(10.dp), tint = Color.Red)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Record", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
                     if (recordings.isNotEmpty()) {
                         Text(
                             "${recordings.size}",
