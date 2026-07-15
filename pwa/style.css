@@ -38,8 +38,27 @@ h1 {
 .subtitle {
   font-size: 0.8rem;
   color: var(--text-dim);
-  margin-bottom: 24px;
+  margin-bottom: 0;
 }
+
+/* Header with cog */
+.header {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.settings-cog {
+  font-size: 1.4rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.settings-cog:hover { color: var(--primary); }
 
 /* Sync status */
 .sync-status {
@@ -181,14 +200,6 @@ h1 {
 }
 
 /* Settings */
-.settings-link {
-  margin-top: 24px;
-  font-size: 0.8rem;
-  color: var(--text-dim);
-  cursor: pointer;
-  text-decoration: underline;
-}
-
 .settings-panel {
   width: 100%;
   max-width: 380px;

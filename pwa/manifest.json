@@ -1,6 +1,6 @@
 {
-  "name": "Jeeves Time",
-  "short_name": "Jeeves Time",
+  "name": "Jeeves",
+  "short_name": "Jeeves",
   "description": "Time tracker with CouchDB sync",
   "start_url": "/",
   "display": "standalone",

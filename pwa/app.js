@@ -149,6 +149,8 @@ async function loadProjects() {
     });
     // Restore selection
     if (currentValue) select.value = currentValue;
+    // Update start button state
+    document.getElementById('btn-start').disabled = !select.value;
   } catch (e) {
     console.error('Failed to load projects:', e);
   }
@@ -164,6 +166,14 @@ function setupEventListeners() {
   document.getElementById('settings-toggle').addEventListener('click', () => {
     document.getElementById('settings-panel').classList.toggle('visible');
   });
+
+  // Disable start button until a project is selected
+  const projectSelect = document.getElementById('project-select');
+  const startBtn = document.getElementById('btn-start');
+  startBtn.disabled = true;
+  projectSelect.addEventListener('change', () => {
+    startBtn.disabled = !projectSelect.value;
+  });
 }
 
 async function startTimer() {
@@ -171,7 +181,7 @@ async function startTimer() {
   const task = document.getElementById('task-input').value.trim();
 
   if (!projectId) {
-    alert('Please select a project');
+    // Don't start — button should be disabled, but just in case
     return;
   }
 

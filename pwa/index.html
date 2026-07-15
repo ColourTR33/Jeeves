@@ -4,13 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#4A90D9">
-  <title>Jeeves Time</title>
+  <title>Jeeves</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Jeeves Time</h1>
-  <p class="subtitle">Remote time tracker</p>
+  <div class="header">
+    <div>
+      <h1>Jeeves</h1>
+      <p class="subtitle">Remote time tracker</p>
+    </div>
+    <span class="settings-cog" id="settings-toggle">&#9881;</span>
+  </div>
 
   <div id="sync-status" class="sync-status">Connecting...</div>
 
@@ -39,7 +44,6 @@
     <div id="recent-entries"></div>
   </div>
 
-  <p class="settings-link" id="settings-toggle">Settings</p>
   <div class="settings-panel" id="settings-panel">
     <div class="field">
       <label>CouchDB URL</label>
