@@ -53,6 +53,13 @@ async function loadDashboard() {
     const { monday, sunday } = getCurrentWeekBounds();
     const weekEntries = entries.filter(e => e.date >= monday && e.date <= sunday);
 
+    // Find the weekly plan for allocation targets
+    const weeklyPlan = docs.find(d => d.type === 'weekly_plan' && d.weekStartDate === monday);
+    const planTargets = {};
+    if (weeklyPlan && weeklyPlan.targets) {
+      weeklyPlan.targets.forEach(t => { planTargets[t.projectId] = t.targetHours; });
+    }
+
     // Group hours by project
     const hoursByProject = {};
     weekEntries.forEach(entry => {
@@ -68,10 +75,12 @@ async function loadDashboard() {
       .filter(p => !p.isDistributed)
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       .forEach(project => {
-        const burned = hoursByProject[project.projectId] || 0;
-        const allocated = project.defaultTargetHours || 0;
+        const projectId = project.projectId || project._id.replace('project_', '');
+        const burned = hoursByProject[projectId] || 0;
+        // Use weekly plan allocation if available, else fall back to project default
+        const allocated = planTargets[projectId] || project.defaultTargetHours || 0;
 
-        // Skip projects with no allocation and no work
+        // Skip projects with no allocation and no work this week
         if (allocated === 0 && burned === 0) return;
 
         const percentage = allocated > 0 ? (burned / allocated) * 100 : (burned > 0 ? 100 : 0);

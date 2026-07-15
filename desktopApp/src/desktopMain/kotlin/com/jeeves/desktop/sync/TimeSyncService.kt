@@ -82,6 +82,7 @@ class TimeSyncService(
         _status.value = SyncStatus.SYNCING
         try {
             pushProjects()
+            pushWeeklyPlan()
             pushTimeEntries()
             deleteRemovedEntries()
             pullTimeEntries()
@@ -114,6 +115,40 @@ class TimeSyncService(
                 put("tdmName", project.tdmName)
                 put("contactName", project.contactName)
                 put("companyName", project.companyName)
+                put("updatedAt", System.currentTimeMillis())
+            }
+            upsertDoc(docId, doc)
+        }
+    }
+
+    // ─── Push Weekly Plan ───────────────────────────────────────────────────────
+
+    private suspend fun pushWeeklyPlan() {
+        // Push the current week's plan so the dashboard can read allocations
+        // Calculate this week's Monday
+        val cal = java.util.Calendar.getInstance()
+        val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
+        val diffToMonday = if (dow == java.util.Calendar.SUNDAY) -6 else java.util.Calendar.MONDAY - dow
+        cal.add(java.util.Calendar.DAY_OF_YEAR, diffToMonday)
+        val monday = TimeTrackingManager.epochToDateString(cal.timeInMillis)
+
+        val plan = repository.getWeeklyPlan(monday)
+        if (plan != null) {
+            val docId = "weeklyplan_${plan.weekStartDate}"
+            val targetsArray = buildJsonArray {
+                plan.targets.forEach { t ->
+                    add(buildJsonObject {
+                        put("projectId", t.projectId)
+                        put("targetHours", t.targetHours)
+                    })
+                }
+            }
+            val doc = buildJsonObject {
+                put("_id", docId)
+                put("type", "weekly_plan")
+                put("weekStartDate", plan.weekStartDate)
+                put("totalTargetHours", plan.totalTargetHours)
+                put("targets", targetsArray)
                 put("updatedAt", System.currentTimeMillis())
             }
             upsertDoc(docId, doc)
