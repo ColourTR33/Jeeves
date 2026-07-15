@@ -83,6 +83,7 @@ class TimeSyncService(
         try {
             pushProjects()
             pushTimeEntries()
+            deleteRemovedEntries()
             pullTimeEntries()
             _status.value = SyncStatus.SUCCESS
             _lastSyncTime.value = System.currentTimeMillis()
@@ -145,6 +146,49 @@ class TimeSyncService(
                 put("updatedAt", System.currentTimeMillis())
             }
             upsertDoc(docId, doc)
+        }
+    }
+
+    // ─── Delete Removed Entries (sync deletions to CouchDB) ─────────────────────
+
+    /**
+     * Compare local entries with what this device has pushed to CouchDB.
+     * Any CouchDB docs from this device that no longer exist locally get deleted.
+     */
+    private suspend fun deleteRemovedEntries() {
+        val today = TimeTrackingManager.epochToDateString(System.currentTimeMillis())
+        val twoWeeksAgo = TimeTrackingManager.epochToDateString(System.currentTimeMillis() - 14 * 86_400_000L)
+        val localEntries = repository.getTimeEntries(twoWeeksAgo, today)
+        val localIds = localEntries.map { "entry_${it.id}" }.toSet()
+
+        // Get all entry docs from CouchDB
+        val viewUrl = "$couchDbUrl/_all_docs?include_docs=true"
+        val responseBody = httpGet(viewUrl) ?: return
+
+        try {
+            val response = json.parseToJsonElement(responseBody).jsonObject
+            val rows = response["rows"]?.jsonArray ?: return
+
+            for (row in rows) {
+                val doc = row.jsonObject["doc"]?.jsonObject ?: continue
+                val type = doc["type"]?.jsonPrimitive?.contentOrNull ?: continue
+                if (type != "time_entry") continue
+
+                val docDeviceId = doc["deviceId"]?.jsonPrimitive?.contentOrNull ?: ""
+                if (docDeviceId != deviceId) continue // Only delete our own entries
+
+                val docId = doc["_id"]?.jsonPrimitive?.contentOrNull ?: continue
+                val rev = doc["_rev"]?.jsonPrimitive?.contentOrNull ?: continue
+
+                // If this doc doesn't exist locally anymore, delete it from CouchDB
+                if (docId !in localIds) {
+                    val deleteUrl = "$couchDbUrl/$docId?rev=$rev"
+                    httpDelete(deleteUrl)
+                    AppLogger.info("TimeSyncService", "Deleted remote entry: $docId (no longer exists locally)")
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.warn("TimeSyncService", "Failed to sync deletions: ${e.message}")
         }
     }
 
@@ -261,6 +305,18 @@ class TimeSyncService(
             conn.readTimeout = 10_000
             conn.doOutput = true
             conn.outputStream.bufferedWriter().use { it.write(body) }
+
+            conn.responseCode in 200..299
+        } catch (_: Exception) { false }
+    }
+
+    private fun httpDelete(url: String): Boolean {
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.requestMethod = "DELETE"
+            conn.setRequestProperty("Authorization", authHeader())
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
 
             conn.responseCode in 200..299
         } catch (_: Exception) { false }
