@@ -1,10 +1,12 @@
-const CACHE_NAME = 'jeeves-time-v5';
+const CACHE_NAME = 'jeeves-time-v6';
 const ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
   '/manifest.json',
+  '/dashboard.html',
+  '/dashboard.js',
   'https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js'
 ];
 

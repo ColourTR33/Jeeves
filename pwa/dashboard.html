@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#4A90D9">
+  <title>Jeeves — Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --text: #e0e0e0;
+      --text-dim: #8892a4;
+      --green: #4CAF50;
+      --blue: #4A90D9;
+      --red: #f44336;
+      --radius: 12px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 24px;
+    }
+    h1 { font-size: 1.3rem; font-weight: 600; }
+    .week-label { font-size: 0.8rem; color: var(--text-dim); }
+    .updated { font-size: 0.7rem; color: var(--text-dim); margin-bottom: 20px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+    }
+    .project-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 16px;
+      border-left: 4px solid var(--green);
+    }
+    .project-card.complete { border-left-color: var(--blue); }
+    .project-card.over { border-left-color: var(--red); }
+    .project-name {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .bar-container {
+      background: rgba(255,255,255,0.08);
+      border-radius: 6px;
+      height: 22px;
+      overflow: hidden;
+      position: relative;
+      margin-bottom: 6px;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 6px;
+      transition: width 0.5s ease;
+    }
+    .bar-fill.green { background: var(--green); }
+    .bar-fill.blue { background: var(--blue); }
+    .bar-fill.red { background: var(--red); }
+    .bar-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: white;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+    .stats {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+    }
+    .no-data {
+      text-align: center;
+      color: var(--text-dim);
+      padding: 60px 0;
+      font-size: 0.9rem;
+    }
+    .legend {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+    }
+    .legend-item { display: flex; align-items: center; gap: 4px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Jeeves — Weekly Burn</h1>
+    <span class="week-label" id="week-label"></span>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background: var(--green)"></div> Time remaining</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--blue)"></div> Fully burned</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--red)"></div> Over allocation</div>
+  </div>
+  <p class="updated" id="updated-at"></p>
+  <div class="grid" id="dashboard-grid"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

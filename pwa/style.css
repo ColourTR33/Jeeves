@@ -224,3 +224,14 @@ h1 {
   width: 100%;
   margin-top: 8px;
 }
+
+/* Dashboard link */
+.dashboard-link {
+  display: block;
+  margin-top: 20px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--primary);
+  text-decoration: none;
+}
+.dashboard-link:hover { text-decoration: underline; }
