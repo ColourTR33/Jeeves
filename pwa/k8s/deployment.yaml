@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jeeves-time
+  namespace: default
+  labels:
+    app: jeeves-time
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jeeves-time
+  template:
+    metadata:
+      labels:
+        app: jeeves-time
+    spec:
+      containers:
+        - name: jeeves-time
+          image: ghcr.io/colourtr33/jeeves-time:latest
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              memory: "16Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jeeves-time
+  namespace: default
+spec:
+  selector:
+    app: jeeves-time
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jeeves-time
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts:
+        - jeeves-time.thehartleys.uk
+      secretName: jeeves-time-tls
+  rules:
+    - host: jeeves-time.thehartleys.uk
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jeeves-time
+                port:
+                  number: 80
