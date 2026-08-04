@@ -55,6 +55,15 @@ class FileSettingsRepository : SettingsRepository {
             s = s.copy(streamingTranscriptionEndpoint = null)
         }
 
+        // Migration: Fix transcriptionEndpoint if it points to 8179 (should be 8178)
+        if (s.transcriptionEndpoint.baseUrl.contains(":8179")) {
+            s = s.copy(
+                transcriptionEndpoint = s.transcriptionEndpoint.copy(
+                    baseUrl = s.transcriptionEndpoint.baseUrl.replace(":8179", ":8178")
+                )
+            )
+        }
+
         return s
     }
 }
