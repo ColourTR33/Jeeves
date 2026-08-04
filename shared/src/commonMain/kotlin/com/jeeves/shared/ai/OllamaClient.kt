@@ -84,8 +84,8 @@ class OllamaClient(
         config: AiEndpointConfig,
         description: String,
         attachmentCount: Int,
-        promptTemplate: String,
-        meetingTemplate: MeetingTemplate,
+        @Suppress("UNUSED_PARAMETER") promptTemplate: String,  // Chunked summarization uses specialized prompts
+        @Suppress("UNUSED_PARAMETER") meetingTemplate: MeetingTemplate,  // Chunked summarization uses specialized prompts
         cloudLlmConfig: CloudLlmConfig? = null
     ): SummaryResult {
         val words = transcription.text.split("\\s+".toRegex())
@@ -135,7 +135,7 @@ $chunk"""
             AppLogger.info("OllamaClient", "Chunk summaries still large (${combinedWordCount} words), running reduce pass")
             val reduceChunks = combinedChunkText.split("\\s+".toRegex()).chunked(1500).map { it.joinToString(" ") }
             val reducedSummaries = mutableListOf<String>()
-            for ((i, rc) in reduceChunks.withIndex()) {
+            for (rc in reduceChunks) {
                 val reducePrompt = """Condense these meeting notes into a shorter summary (max 300 words). Keep all action items and key decisions.
 
 $rc"""
