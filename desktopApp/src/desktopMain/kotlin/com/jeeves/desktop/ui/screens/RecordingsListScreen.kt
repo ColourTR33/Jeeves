@@ -1160,17 +1160,35 @@ private fun RecordingDetail(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Email Recap")
             }
+
+            // Obsidian export with feedback
+            var obsidianStatus by remember { mutableStateOf("") }
             OutlinedButton(
                 onClick = {
+                    obsidianStatus = "Exporting..."
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        val currentSettings = appState.settingsRepository.getSettings()
-                        val vaultPath = currentSettings.obsidianVaultPath.ifBlank {
-                            System.getProperty("user.home") + "/Obsidian/Jeeves"
+                        try {
+                            val currentSettings = appState.settingsRepository.getSettings()
+                            val vaultPath = currentSettings.obsidianVaultPath.ifBlank {
+                                System.getProperty("user.home") + "/Obsidian/Jeeves"
+                            }
+                            appState.obsidianExportService.vaultPath = vaultPath
+                            val file = appState.obsidianExportService.exportToVault(recording, transcription, summary)
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                obsidianStatus = if (file != null) "Saved!" else "Failed"
+                            }
+                        } catch (e: Exception) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                obsidianStatus = "Error"
+                            }
                         }
-                        appState.obsidianExportService.vaultPath = vaultPath
-                        appState.obsidianExportService.exportToVault(recording, transcription, summary)
+                        kotlinx.coroutines.delay(2000)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            obsidianStatus = ""
+                        }
                     }
-                }
+                },
+                enabled = obsidianStatus.isEmpty()
             ) {
                 Icon(
                     Icons.Filled.Save,
@@ -1178,7 +1196,7 @@ private fun RecordingDetail(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Save to Obsidian")
+                Text(if (obsidianStatus.isEmpty()) "Save to Obsidian" else obsidianStatus)
             }
         }
 
