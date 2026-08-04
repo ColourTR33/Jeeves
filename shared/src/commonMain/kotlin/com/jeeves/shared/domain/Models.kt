@@ -236,5 +236,7 @@ data class AppSettings(
     val timeSyncUsername: String = "",
     val timeSyncPassword: String = "",
     val timeSyncIntervalSeconds: Int = 60,    // How often to sync (configurable)
-    val timeSyncDeviceId: String = "desktop"  // Identifies this device's entries
+    val timeSyncDeviceId: String = "desktop",  // Identifies this device's entries
+    // Calendar integration
+    val calendarIcsPath: String = ""  // Path to synced ICS calendar file (cross-platform alternative to Outlook/Calendar.app)
 )

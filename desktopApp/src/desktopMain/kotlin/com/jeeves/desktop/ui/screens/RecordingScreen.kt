@@ -129,6 +129,15 @@ private fun RecordMainPanel(hotkeyManager: HotkeyManager) {
                 appState.recordingManager.pendingAttendees = ""
                 appState.recordingManager.pendingReminders = ""
                 appState.recordingManager.pendingTemplate = MeetingTemplate.GENERAL
+
+                // Calendar integration: auto-fill title from ongoing/upcoming meeting
+                val calendarEvent = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    appState.calendarService.getNextMeeting()
+                }
+                if (calendarEvent != null && meetingTitle.isBlank()) {
+                    meetingTitle = calendarEvent.title
+                    appState.recordingManager.pendingTitle = calendarEvent.title
+                }
             }
             // Refresh streaming setting and audio source at start of each recording
             val settings = appState.settingsRepository.getSettings()

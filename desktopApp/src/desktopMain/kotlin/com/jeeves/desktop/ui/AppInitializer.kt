@@ -186,7 +186,11 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
         val speakerNameService = SpeakerNameService()
         val emailExportService = EmailExportService()
         val obsidianExportService = ObsidianExportService()
-        val calendarService = CalendarService()
+        val calendarService = CalendarService().apply {
+            if (settings.calendarIcsPath.isNotBlank()) {
+                icsFilePath = settings.calendarIcsPath
+            }
+        }
         val promptTemplateManager = PromptTemplateManager(settingsRepository)
 
         val timeRepo = com.jeeves.desktop.data.FileTimeTrackingRepository()
