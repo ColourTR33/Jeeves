@@ -1703,11 +1703,9 @@ private fun SpeakerSegmentDisplay(transcription: TranscriptionResult, recording:
                             focusRequester.requestFocus()
                         }
                     } else {
-                        // Clickable speaker label
-                        Text(
-                            text = displayName,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
+                        // Clickable speaker label with edit hint
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .padding(bottom = 2.dp)
                                 .then(
@@ -1720,7 +1718,20 @@ private fun SpeakerSegmentDisplay(transcription: TranscriptionResult, recording:
                                     editingSpeaker = speaker
                                     editingName = displayName
                                 }
-                        )
+                        ) {
+                            Text(
+                                text = displayName,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription = "Click to rename speaker",
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                        }
                     }
                 }
 
