@@ -18,6 +18,7 @@ import com.jeeves.desktop.data.ObsidianExportService
 import com.jeeves.desktop.data.RemindersExportService
 import com.jeeves.desktop.data.SearchService
 import com.jeeves.desktop.data.SpeakerNameService
+import com.jeeves.desktop.data.UpdateChecker
 import com.jeeves.desktop.hotkey.HotkeyManager
 import com.jeeves.desktop.ui.screens.AppState
 import com.jeeves.desktop.ui.screens.LocalAppState
@@ -252,6 +253,10 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             timeSyncService.start()
         }
 
+        // Update checker — checks GitHub releases on startup
+        val updateChecker = UpdateChecker(httpClient, scope)
+        updateChecker.checkForUpdates()
+
         AppState(
             recordingManager = recordingManager,
             settingsRepository = settingsRepository,
@@ -271,7 +276,8 @@ fun JeevesApp(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = {}) {
             mantraManager = mantraManager,
             meetingScheduleManager = meetingScheduleManager,
             callDetector = callDetector,
-            syncEngine = syncEngine
+            syncEngine = syncEngine,
+            updateChecker = updateChecker
         )
     }
 

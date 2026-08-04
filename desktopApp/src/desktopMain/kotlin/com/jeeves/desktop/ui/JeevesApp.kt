@@ -34,6 +34,9 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
     var currentScreen by remember { mutableStateOf(Screen.RECORDING) }
     val appState = LocalAppState.current
 
+    // Update checker state
+    val updateInfo by appState.updateChecker?.updateAvailable?.collectAsState() ?: remember { mutableStateOf(null) }
+
     // Sync warning state: monitors lastSyncTimestamp and shows persistent warning after 1 hour
     val syncWarningState = rememberSyncWarningState(syncEngine = appState.syncEngine)
 
@@ -139,7 +142,10 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Main content
-                    Column(modifier = Modifier.fillMaxSize().padding(bottom = if (bannerMessage != null || syncWarningState.shouldShow) 40.dp else 0.dp)) {
+                    Column(modifier = Modifier.fillMaxSize().padding(
+                        top = if (updateInfo != null) 50.dp else 0.dp,
+                        bottom = if (bannerMessage != null || syncWarningState.shouldShow) 40.dp else 0.dp
+                    )) {
                         NavBar(currentScreen) { screen -> currentScreen = screen }
 
                         when (currentScreen) {
@@ -149,6 +155,14 @@ fun JeevesAppContent(hotkeyManager: HotkeyManager, onOpenSettings: () -> Unit = 
                             Screen.REMINDERS -> RemindersScreen()
                             Screen.LOGS -> LogViewerScreen()
                         }
+                    }
+
+                    // Top update banner
+                    Box(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+                        UpdateBanner(
+                            updateInfo = updateInfo,
+                            onDismiss = { appState.updateChecker?.dismissUpdate() }
+                        )
                     }
 
                     // Bottom notification banners

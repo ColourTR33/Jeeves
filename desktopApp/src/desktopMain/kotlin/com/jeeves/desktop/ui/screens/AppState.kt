@@ -11,6 +11,7 @@ import com.jeeves.desktop.data.ObsidianExportService
 import com.jeeves.desktop.data.RemindersExportService
 import com.jeeves.desktop.data.SearchService
 import com.jeeves.desktop.data.SpeakerNameService
+import com.jeeves.desktop.data.UpdateChecker
 import com.jeeves.desktop.time.TimeReminderService
 import com.jeeves.shared.domain.RecordingsRepository
 import com.jeeves.shared.domain.SettingsRepository
@@ -40,7 +41,8 @@ data class AppState(
     val mantraManager: com.jeeves.shared.mantra.MantraManager,
     val meetingScheduleManager: com.jeeves.desktop.meeting.MeetingScheduleManager,
     val callDetector: com.jeeves.desktop.audio.CallDetector? = null,
-    val syncEngine: SyncEngine? = null
+    val syncEngine: SyncEngine? = null,
+    val updateChecker: UpdateChecker? = null
 )
 
 val LocalAppState = compositionLocalOf<AppState> {
