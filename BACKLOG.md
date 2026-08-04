@@ -27,15 +27,14 @@ Map-reduce chunked summarization is implemented in OllamaClient:
 
 ---
 
-### 3. Settings Corruption — streamingTranscriptionEndpoint Reappearing
+### 3. ~~Settings Corruption — streamingTranscriptionEndpoint Reappearing~~ ✅ DONE
 The `streamingTranscriptionEndpoint` field with port 8179 keeps reappearing in settings.json despite being removed. Nothing runs on 8179.
 
-**Approach:**
-- Audit all code paths that write settings (SettingsManager, AppInitializer, migration logic)
-- Add a migration step that strips any endpoint with port 8179
-- Add a unit test that serializes/deserializes settings and asserts no 8179 endpoint
-
-**Impact:** Low functional impact but causes confusion and connection errors on streaming startup.
+**Fixed with:**
+- Migration in FileSettingsRepository that strips any endpoint with port 8179
+- Also migrates transcriptionEndpoint if it has 8179 (fixes to 8178)
+- Migration runs on both load and save
+- Unit tests verify 8179 is never persisted
 
 ---
 
@@ -65,109 +64,67 @@ The iOS app (`iosApp/`) is functional with:
 
 ## Should Have
 
-### 5. Platform Installers & Distribution
+### 5. ~~Platform Installers & Distribution~~ ✅ DONE
 
-Currently the desktop app is deployed as a manual jar copy. Each platform needs a proper installer for end-user distribution.
+Build scripts created in `packaging/` directory:
+- `build-windows-installer.bat` - Creates MSI/EXE via jpackage
+- `build-macos-installer.sh` - Creates DMG with optional code signing
+- `packaging/README.md` - Full documentation
 
-#### 5a. Windows Installer (MSI/EXE)
-**Approach:**
-- Use `jpackage` (bundled with JDK 17+) to create Windows MSI/EXE installer
-- Bundle JRE so Java doesn't need to be pre-installed
-- Include whisper-server Python environment or document prerequisite
-- Register as Windows Service option during install
-- Start menu shortcuts, uninstaller, file associations (.jeeves files)
-- Code signing certificate for SmartScreen approval (optional but recommended)
-
-**Command:** `jpackage --type msi --input build/jars --main-jar Jeeves.jar --name Jeeves --app-version 1.2.0 --win-menu --win-shortcut`
-
-#### 5b. macOS Installer (DMG/PKG)
-**Approach:**
-- Use `jpackage` to create .app bundle inside a DMG
-- Bundle JRE for self-contained distribution
-- Code sign with Apple Developer certificate for Gatekeeper approval
-- Notarize with Apple for "identified developer" status
-- Include whisper-server setup instructions or brew formula
-- launchd plist for whisper-server auto-start (optional)
-
-**Command:** `jpackage --type dmg --input build/jars --main-jar Jeeves.jar --name Jeeves --app-version 1.2.0 --mac-sign --mac-signing-key-user-name "Developer ID"`
-
-#### 5c. iOS App Store Distribution
-**Approach:**
-- Xcode Archive → App Store Connect upload
-- Apple Developer Program membership required ($99/year)
-- App Store review compliance (privacy manifest, data handling)
-- TestFlight for beta distribution to testers
-- Alternatively: Ad-hoc distribution for personal use (limited to 100 devices)
-
-**Requirements:**
-- App icons at all required sizes (1024x1024 for App Store)
-- Privacy policy URL
-- Screenshots for App Store listing
-- App review information (demo account if needed)
-
-#### 5d. Auto-Update Mechanism
-**Approach:**
-- Version check on startup against a version.json on GitHub releases
-- "Update available" notification with changelog
-- One-click download of new installer (or auto-download + prompt to install)
-- For macOS: Sparkle framework integration
-- For Windows: custom updater or WinSparkle
-
-**Impact:** Without installers, adoption is limited to technical users who can build from source.
+Auto-update mechanism implemented:
+- UpdateChecker service polls GitHub releases API on startup
+- UpdateBanner UI component shows when update available
+- One-click download to release page
 
 ---
 
-### 6. Whisper Server as a Windows Service
-The whisper server runs in a console window that can be accidentally closed. Should run as a background service.
-
-**Approach:**
-- Use NSSM (Non-Sucking Service Manager) to wrap whisper-server.bat as a Windows service
-- Or use pythonw.exe + a proper Windows service wrapper
-- Auto-start on boot, restart on failure
-- Health endpoint monitoring from the main app
+### 6. ~~Whisper Server as a Windows Service~~ ✅ DONE
+Scripts in `whisper-server/`:
+- `install-service.bat` - Installs as Windows Service via NSSM
+- `uninstall-service.bat` - Clean removal
+- Auto-start on boot, auto-restart on failure
+- Log rotation at 10MB
 
 ---
 
-### 7. Search Across Recordings
-Full-text search across all transcriptions and summaries. Currently no way to find a past meeting except scrolling the list.
-
-**Approach:**
-- SQLite FTS5 virtual table indexed on transcription text + summary text + title + tags
-- Search bar at the top of Recordings list
-- Highlight matching segments with timestamps (click to jump)
-
----
-
-### 8. Export to Markdown / Obsidian
-Export completed recordings (summary + transcription + metadata) as structured Markdown files compatible with Obsidian.
-
-**Approach:**
-- "Export" button on recording detail view
-- Template: YAML frontmatter (date, attendees, project, tags) + summary + action items + full transcript
-- Configurable output folder (default: Obsidian vault path from settings)
-- Batch export for multiple recordings
+### 7. ~~Search Across Recordings~~ ✅ DONE
+SQLite FTS5 full-text search implemented in SearchService:
+- Indexes titles, descriptions, transcriptions, summaries, key points, action items, tags
+- BM25 ranking for relevance-sorted results
+- Porter stemming + unicode tokenization
+- Snippet highlighting with match context
+- Incremental index updates
 
 ---
 
-### 9. Improved Speaker Labels
-Pyannote returns SPEAKER_00, SPEAKER_01 etc. These should be user-assignable names that persist across meetings.
-
-**Approach:**
-- After diarization, show a speaker assignment UI (audio snippets + "Who is this?")
-- Build a speaker voiceprint database (embeddings from pyannote)
-- Auto-match speakers across recordings using cosine similarity
-- Allow manual override/correction
+### 8. ~~Export to Markdown / Obsidian~~ ✅ DONE
+ObsidianExportService with:
+- YAML frontmatter (date, type, template, tags, duration)
+- Summary, key points, action items (as checkboxes)
+- Full transcription with timestamps and speakers
+- "Save to Obsidian" button in recording detail view
+- Configurable vault path in settings
+- Export feedback (Exporting... / Saved! / Error)
 
 ---
 
-### 10. Calendar Integration (Outlook/Teams)
-Auto-populate meeting title and attendees from calendar events when a recording starts during a scheduled meeting.
+### 9. ~~Improved Speaker Labels~~ ✅ DONE
+SpeakerNameService with:
+- Persists speaker label → human name mappings in `~/Jeeves/speaker-names.json`
+- Names persist across all recordings
+- Inline editing: click speaker name to rename
+- Color-coded speaker groups in transcription view
+- Edit icon hint for discoverability
 
-**Approach:**
-- Microsoft Graph API (requires Azure AD app registration)
-- Match current time against calendar events
-- Pre-fill title, description, attendees from calendar event
-- Or simpler: read .ics files from a synced calendar folder
+---
+
+### 10. ~~Calendar Integration (Outlook/Teams)~~ ✅ DONE
+CalendarService with:
+- Windows: Queries Outlook via PowerShell COM object
+- macOS: Queries Calendar.app via AppleScript
+- Cross-platform: ICS file parsing (configurable path in settings)
+- Auto-fills meeting title when recording starts
+- Detects ongoing meetings and upcoming meetings (within 30 min)
 
 ---
 
