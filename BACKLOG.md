@@ -65,14 +65,55 @@ The iOS app (`iosApp/`) is functional with:
 
 ## Should Have
 
-### 5. Installer / Auto-Update
-Currently deployed as a manual jar copy with a .bat launcher. Users must rebuild and redeploy manually.
+### 5. Platform Installers & Distribution
 
+Currently the desktop app is deployed as a manual jar copy. Each platform needs a proper installer for end-user distribution.
+
+#### 5a. Windows Installer (MSI/EXE)
 **Approach:**
-- Create a proper Windows MSI installer (jpackage or WiX)
+- Use `jpackage` (bundled with JDK 17+) to create Windows MSI/EXE installer
 - Bundle JRE so Java doesn't need to be pre-installed
-- Add version check on startup with "Update available" notification
-- Alternatively: use a self-updating launcher that pulls latest jar from a local/network path
+- Include whisper-server Python environment or document prerequisite
+- Register as Windows Service option during install
+- Start menu shortcuts, uninstaller, file associations (.jeeves files)
+- Code signing certificate for SmartScreen approval (optional but recommended)
+
+**Command:** `jpackage --type msi --input build/jars --main-jar Jeeves.jar --name Jeeves --app-version 1.2.0 --win-menu --win-shortcut`
+
+#### 5b. macOS Installer (DMG/PKG)
+**Approach:**
+- Use `jpackage` to create .app bundle inside a DMG
+- Bundle JRE for self-contained distribution
+- Code sign with Apple Developer certificate for Gatekeeper approval
+- Notarize with Apple for "identified developer" status
+- Include whisper-server setup instructions or brew formula
+- launchd plist for whisper-server auto-start (optional)
+
+**Command:** `jpackage --type dmg --input build/jars --main-jar Jeeves.jar --name Jeeves --app-version 1.2.0 --mac-sign --mac-signing-key-user-name "Developer ID"`
+
+#### 5c. iOS App Store Distribution
+**Approach:**
+- Xcode Archive → App Store Connect upload
+- Apple Developer Program membership required ($99/year)
+- App Store review compliance (privacy manifest, data handling)
+- TestFlight for beta distribution to testers
+- Alternatively: Ad-hoc distribution for personal use (limited to 100 devices)
+
+**Requirements:**
+- App icons at all required sizes (1024x1024 for App Store)
+- Privacy policy URL
+- Screenshots for App Store listing
+- App review information (demo account if needed)
+
+#### 5d. Auto-Update Mechanism
+**Approach:**
+- Version check on startup against a version.json on GitHub releases
+- "Update available" notification with changelog
+- One-click download of new installer (or auto-download + prompt to install)
+- For macOS: Sparkle framework integration
+- For Windows: custom updater or WinSparkle
+
+**Impact:** Without installers, adoption is limited to technical users who can build from source.
 
 ---
 
@@ -231,8 +272,12 @@ Global and in-app keyboard shortcuts for power users.
 ### Obsidian Plugin
 Removed. The standalone desktop app with Markdown export (item #8) covers the Obsidian use case better than an in-editor plugin.
 
-### macOS-Specific Features
-BlackHole audio routing, launchd services, Apple Reminders integration — parked until there's a macOS user. The app is Windows-first.
+### macOS Support
+The desktop app is Kotlin Multiplatform and should work on macOS, but needs testing and platform-specific polish:
+- BlackHole audio routing for system audio capture
+- launchd services for whisper-server auto-start
+- Apple Reminders integration
+- Proper .app bundle with code signing
 
 ---
 
