@@ -707,13 +707,13 @@ fun SettingsScreen() {
                                 isSaved = false
                             },
                             label = { Text("Streaming Server URL") },
-                            placeholder = { Text("http://localhost:8179") },
+                            placeholder = { Text("http://localhost:8178") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Start a second instance: ./server -m models/ggml-small.bin -p 8179",
+                            "Optional: use a second whisper-server instance for streaming",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
                         )

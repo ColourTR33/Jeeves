@@ -6,29 +6,24 @@ Prioritised using MoSCoW method. Items within each category are ordered by prior
 
 ## Must Have
 
-### 1. Stabilise Whisper Server Connectivity
-The whisper server crashes intermittently (WinError 64 — client disconnection during long transcriptions). The app retries, but the root cause needs fixing.
-
-**Approach:**
-- Add `--timeout-keep-alive 120` to uvicorn config
-- Wrap transcription in a try/except that catches broken-pipe errors gracefully
-- Add server-side request timeout (10 min max per file)
-- Consider chunking large files server-side before transcription
-
-**Impact:** Without this, recordings pile up untranscribed and the user has to manually restart the server.
+### 1. ~~Stabilise Whisper Server Connectivity~~ ✅ DONE
+The whisper server has been hardened with:
+- BrokenPipeMiddleware to catch WinError 64 and client disconnections gracefully
+- `timeout_keep_alive=120` to prevent premature connection drops
+- Concurrency limiting (max 3 connections, 1 active transcription at a time)
+- Memory management with idle model unloading and request limits
+- Proper temp file cleanup in finally blocks
 
 ---
 
-### 2. Fix Summarization Failures on Long Transcripts
-Summarization silently fails when transcription text exceeds Ollama's context window (~8K tokens for qwen3:8b). No error is shown — the summary just never appears.
-
-**Approach:**
-- Detect transcript length before sending to Ollama
-- If > 6000 words, split into chunks, summarise each chunk, then summarise the summaries (map-reduce)
-- Show explicit error in Logs if Ollama returns a non-200 or empty response
-- Consider switching to a model with larger context (qwen3:14b, or use /api/generate with num_ctx override)
-
-**Impact:** Multi-hour meetings produce no summary at all. This is the most-requested fix.
+### 2. ~~Fix Summarization Failures on Long Transcripts~~ ✅ DONE
+Map-reduce chunked summarization is implemented in OllamaClient:
+- Transcripts >2000 words are split into ~1500-word chunks
+- Each chunk is summarized independently (Phase 1: Map)
+- If combined summaries still exceed 2000 words, a reduce pass condenses them
+- Final synthesis pass produces the structured output
+- Empty responses are logged and handled gracefully
+- Explicit error logging when Ollama returns non-200 or empty responses
 
 ---
 
@@ -44,15 +39,27 @@ The `streamingTranscriptionEndpoint` field with port 8179 keeps reappearing in s
 
 ---
 
-### 4. iOS Companion App
-The iOS app exists in the project structure but is not functional. It should connect to the desktop services over LAN and provide mobile recording with transcription.
+### 4. ~~iOS Companion App~~ ✅ LARGELY COMPLETE
+The iOS app (`iosApp/`) is functional with:
+- Audio recording to WAV at 16kHz mono (optimal for Whisper)
+- Real-time audio level meter
+- Live streaming transcription during recording
+- Async processing queue (transcribe → summarize)
+- Local Whisper server integration (configurable IP)
+- Groq cloud transcription fallback
+- Ollama summarization integration
+- Recordings list with search
+- Markdown export
+- Screenshot capture during meetings
+- Meeting templates (General, Standup, 1:1, Interview, etc.)
+- Bookmark timestamps during recording
+- Speaker name assignment
+- Settings view for server configuration
 
-**Approach:**
-- Phase 1: Basic recording + upload to desktop whisper server for transcription
-- Phase 2: View recordings and summaries synced from desktop
-- Phase 3: Offline recording with sync-when-available
-
-**Impact:** Core requirement from original project brief. Currently desktop-only.
+**Remaining work for Phase 2:**
+- Sync recordings/transcriptions with desktop via CouchDB (currently local-only)
+- View recordings synced from desktop
+- Offline recording with sync-when-available
 
 ---
 
@@ -222,7 +229,7 @@ Global and in-app keyboard shortcuts for power users.
 ## Won't Do (Parked)
 
 ### Obsidian Plugin
-The existing obsidian-plugin directory is unmaintained. Recording from within Obsidian adds complexity without clear benefit given the standalone desktop app. Markdown export (item #8) covers the Obsidian use case better.
+Removed. The standalone desktop app with Markdown export (item #8) covers the Obsidian use case better than an in-editor plugin.
 
 ### macOS-Specific Features
 BlackHole audio routing, launchd services, Apple Reminders integration — parked until there's a macOS user. The app is Windows-first.
@@ -233,7 +240,7 @@ BlackHole audio routing, launchd services, Apple Reminders integration — parke
 
 - **ScreenshotCapture**: Partially uses macOS commands on Windows (fixed to use Java Robot API but needs testing)
 - **CallDetector**: Uses `tasklist` on Windows, `/bin/ps` on macOS — brittle process name matching
-- **WhisperX server**: Deprecated, should be removed from repo (whisper-server replaces it)
+- **WhisperX server**: Removed (whisper-server replaces it)
 - **Gradle build**: Extremely aggressive caching causes stale jars — consider switching to a simpler build (shadow jar plugin directly)
 - **Settings migration**: No versioned migration system — ad-hoc field additions risk corruption
 - **Test coverage**: Property tests defined in specs but very few unit tests actually exist

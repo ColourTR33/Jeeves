@@ -59,8 +59,7 @@ Jeeves/
 ├── iosApp/                  # SwiftUI iOS app (planned)
 ├── whisper-server/          # Python FastAPI — multi-backend Whisper transcription
 ├── diarization-server/      # Python FastAPI — pyannote speaker diarization
-├── whisperx-server/         # Legacy WhisperX server (deprecated)
-└── obsidian-plugin/         # Obsidian community plugin (legacy, unmaintained)
+└── pwa/                     # Progressive Web App for mobile time tracking
 ```
 
 ---

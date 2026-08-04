@@ -1139,7 +1139,7 @@ private fun RecordingDetail(
             OutlinedButton(
                 onClick = {
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        appState.emailExportService.sendRecap(recording, transcription, summary)
+                        appState.emailExportService.sendRecap(recording, summary)
                     }
                 }
             ) {

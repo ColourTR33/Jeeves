@@ -2,7 +2,6 @@ package com.jeeves.desktop.data
 
 import com.jeeves.shared.domain.Recording
 import com.jeeves.shared.domain.SummaryResult
-import com.jeeves.shared.domain.TranscriptionResult
 import java.awt.Desktop
 import java.net.URI
 import java.net.URLEncoder
@@ -15,7 +14,7 @@ import java.time.format.DateTimeFormatter
  */
 class EmailExportService {
 
-    fun sendRecap(recording: Recording, transcription: TranscriptionResult?, summary: SummaryResult?): Boolean {
+    fun sendRecap(recording: Recording, summary: SummaryResult?): Boolean {
         val subject = "Meeting Recap: ${recording.title}"
         val body = buildEmailBody(recording, summary)
 
